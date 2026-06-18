@@ -136,11 +136,15 @@ make validate    # şema + registry doğrulama (CI ile aynı)
 make test        # pytest
 ```
 
-### Durable execution kanıtı
+### Durable execution kanıtı (kill → resume)
+`agent-runner`, LangGraph + `AsyncPostgresSaver` ile çalışır; yürütme süreçler arası dayanıklıdır:
 ```bash
-docker compose -f infra/compose/docker-compose.yml kill agent-runner
-make up          # restart → AsyncPostgresSaver checkpointer'dan resume
+C="docker compose -f infra/compose/docker-compose.yml --env-file .env"
+$C exec agent-runner python -m runner.resume_demo start demo-1   # execute öncesi durur, checkpoint Postgres'e
+$C kill agent-runner && make up                                  # süreci öldür, yeniden başlat
+$C exec agent-runner python -m runner.resume_demo resume demo-1  # kalıcı durumdan tamamlar
 ```
+Beklenen: `resume` çıktısı `steps=['plan: ...','execute: ...']`, `next=()` — yani iş, çökme sonrası kaldığı yerden bitti.
 
 ---
 

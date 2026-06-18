@@ -143,7 +143,8 @@ services:
     image: ghcr.io/berriai/litellm:main-stable
     profiles: ["ai"]
     command: ["--config", "/app/config.yaml", "--port", "4000"]
-    env_file: ../../.env
+    # env_file KULLANMA: .env içindeki DATABASE_URL (postgresql+asyncpg://...)
+    # LiteLLM'in Prisma'sını bozar (P1012). Yalnızca gereken değişkenleri geçiyoruz.
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-master-dev}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
