@@ -18,6 +18,8 @@ from sqlalchemy import select
 from agentic_schemas.acp.v1 import TaskMessage, TaskPayload
 from agentic_schemas.events.v1 import Subject
 
+from . import planner
+from .config import settings
 from .db import SessionLocal
 from .models import Task, TaskNode
 from .routing import route
@@ -46,17 +48,38 @@ def infer_type(goal: str) -> str:
     return "build"
 
 
-def decompose(goal: str, skill: str | None, wtype: str | None) -> list[dict]:
-    """Hedefi DAG düğümlerine böler. skill verildiyse tek düğüm (geriye uyumlu)."""
-    if skill:
-        return [{"key": "t1", "skill": skill, "agent": route(skill), "depends_on": []}]
+def _rule_plan(goal: str, wtype: str | None) -> list[dict]:
     template = _RESEARCH if (wtype or infer_type(goal)) == "research" else _BUILD
-    return [{"key": k, "skill": s, "agent": route(s), "depends_on": d} for k, s, d in template]
+    return [{"key": k, "skill": s, "depends_on": d} for k, s, d in template]
+
+
+async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[list[dict], str, str | None]:
+    """(plan, source, error) döner. source ∈ {single, llm, rule}; error fallback nedeni.
+
+    skill verildiyse tek düğüm (geriye uyumlu). Aksi halde LLM (varsa) → guardrail →
+    geçerliyse llm; değilse kural tabanlı fallback (error nedeniyle).
+    """
+    if skill:
+        plan = [{"key": "t1", "skill": skill, "depends_on": []}]
+        source, error = "single", None
+    else:
+        nodes, error = (None, "disabled")
+        if settings.llm_available:
+            nodes, error = await planner.llm_plan(goal)
+        if nodes:
+            plan, source = nodes, "llm"
+        else:
+            plan, source = _rule_plan(goal, wtype), "rule"
+    # her düğüme agent'ı route ile ekle
+    for n in plan:
+        n["agent"] = route(n["skill"])
+    print(f'[planner] source={source} error={error} nodes={len(plan)} goal="{goal[:60]}"', flush=True)
+    return plan, source, error
 
 
 async def start_workflow(js, goal: str, skill: str | None, wtype: str | None) -> dict:
     task_id = str(uuid4())
-    plan = decompose(goal, skill, wtype)
+    plan, source, error = await decompose(goal, skill, wtype)
     async with _lock:
         async with SessionLocal() as s:
             s.add(Task(id=task_id, trace_id=task_id, agent="kaptan", skill=skill, goal=goal, status="running", plan=plan))
@@ -66,7 +89,7 @@ async def start_workflow(js, goal: str, skill: str | None, wtype: str | None) ->
             await s.flush()
             await _dispatch_ready(s, js, task_id, goal)
             await s.commit()
-    return {"task_id": task_id, "status": "running", "plan": plan}
+    return {"task_id": task_id, "status": "running", "planner": source, "planner_error": error, "plan": plan}
 
 
 async def _dispatch_ready(s, js, task_id: str, goal: str) -> None:

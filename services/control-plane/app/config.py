@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     litellm_url: str = "http://litellm:4000"
     litellm_master_key: str = "sk-local-master-dev"
+    llm_model: str = "claude-sonnet"  # LiteLLM model alias (env: LLM_MODEL)
 
     # Graceful degradation bayrakları (setup tarafından ayarlanır)
     llm_available: bool = False
