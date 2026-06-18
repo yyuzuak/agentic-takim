@@ -1,0 +1,23 @@
+{
+  "name": "Agentic Takım",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" }
+  },
+  "postCreateCommand": "npm i -g pnpm@9.15.9 && pip install uv && echo 'Hazır. Kurulum için: make setup'",
+  "forwardPorts": [3000, 8000, 4000, 6333, 3001],
+  "portsAttributes": {
+    "3000": { "label": "Web" },
+    "8000": { "label": "Control-plane" },
+    "3001": { "label": "Langfuse" },
+    "6333": { "label": "Qdrant" },
+    "4000": { "label": "LiteLLM" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-azuretools.vscode-docker", "esbenp.prettier-vscode"]
+    }
+  }
+}

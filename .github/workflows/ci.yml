@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate-schemas:
+    name: Şema + Registry doğrulama
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bağımlılıkları kur
+        run: |
+          pip install ./packages/schemas pydantic-settings
+      - name: Doğrula (agents.json + ACP subject'leri)
+        working-directory: services/control-plane
+        env:
+          CONFIG_PATH: ${{ github.workspace }}/config/agents.json
+        run: python -m app.validate
+
+  compose-config:
+    name: docker compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: .env hazırla
+        run: cp .env.example .env
+      - name: Compose doğrula
+        run: docker compose -f infra/compose/docker-compose.yml --env-file .env --profile core --profile ai --profile memory --profile observability config >/dev/null
+
+  smoke:
+    name: Core smoke (health)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: .env hazırla
+        run: cp .env.example .env
+      - name: Core stack başlat
+        run: docker compose -f infra/compose/docker-compose.yml --env-file .env --profile core up -d --build
+      - name: control-plane health bekle
+        run: bash scripts/wait-for.sh control-plane 180
+      - name: Migration + seed
+        run: |
+          docker compose -f infra/compose/docker-compose.yml --env-file .env exec -T control-plane alembic upgrade head
+          docker compose -f infra/compose/docker-compose.yml --env-file .env exec -T control-plane python -m app.seed
+      - name: /agents kontrolü
+        run: curl -fsS http://localhost:8000/agents | grep -q kaptan
+      - name: Temizle
+        if: always()
+        run: docker compose -f infra/compose/docker-compose.yml --env-file .env --profile core down -v

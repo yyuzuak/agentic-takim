@@ -1,0 +1,23 @@
+# LiteLLM proxy yapılandırması (ai profili)
+# Sağlayıcı anahtarları .env'den enjekte edilir. Anahtar yoksa ilgili model
+# servis edilemez ama proxy yine ayağa kalkar; control-plane LLM_AVAILABLE
+# bayrağı ile zarif şekilde (graceful) çalışmaya devam eder.
+
+model_list:
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-latest
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+litellm_settings:
+  drop_params: true
+  # Fallback: birincil sağlayıcı düşerse diğerine geç (STACK.md — Bütçe/Fallback)
+  fallbacks:
+    - gpt-4o: ["claude-sonnet"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

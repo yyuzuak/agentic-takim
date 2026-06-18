@@ -1,0 +1,53 @@
+{
+  "$comment": "Ajan → skill registry. ARCHITECTURE.md Bölüm 5 ile birebir. seed.py bunu okuyup agents/skills/agent_skills tablolarına yazar.",
+  "agents": {
+    "kaptan": {
+      "display_name": "Kaptan",
+      "role": "Takım Lideri (Orchestrator)",
+      "type": "orchestrator",
+      "skills": ["niyet-ayristirma", "gorev-parcalama-motoru", "ajan-yonlendirme-motoru", "baglam-ozetleme", "yurutme-denetcisi", "cakisma-cozucu"]
+    },
+    "pusula": {
+      "display_name": "Pusula",
+      "role": "Ürün Yöneticisi",
+      "type": "agent",
+      "skills": ["prd-uretici", "mvp-kapsam-daraltici", "kullanici-yolculugu-simulatoru", "gereksinim-dogrulayici", "onceliklendirme-motoru"]
+    },
+    "mimar": {
+      "display_name": "Mimar",
+      "role": "Sistem Mimarı",
+      "type": "agent",
+      "skills": ["sistem-mimarisi-uretici", "api-sozlesme-tasarimci", "veri-modelleme-motoru", "teknoloji-secim-motoru", "olceklenebilirlik-simulatoru", "guvenlik-mimarisi-denetcisi"]
+    },
+    "usta": {
+      "display_name": "Usta",
+      "role": "Yazılım Mühendisi",
+      "type": "agent",
+      "skills": ["fullstack-kod-uretici", "frontend-sistem-insaaci", "backend-servis-insaaci", "entegrasyon-motoru", "test-cercevesi-uretici", "hata-ayiklama-motoru"]
+    },
+    "veda": {
+      "display_name": "Veda",
+      "role": "Veri Bilimci",
+      "type": "agent",
+      "skills": ["eda-motoru", "ml-pipeline-tasarimci", "model-degerlendirme-motoru", "nlp-isleme-motoru", "veri-pipeline-insaaci", "web-kazima-orkestratoru"]
+    },
+    "dedektif": {
+      "display_name": "Dedektif",
+      "role": "Derin Araştırmacı",
+      "type": "agent",
+      "skills": ["derin-web-arastirma", "pazar-zekasi-motoru", "rakip-tersine-muhendislik", "akademik-literatur-tarayici", "kullanici-icgoru-cikarici", "gercek-dogrulama-motoru"]
+    },
+    "zirve": {
+      "display_name": "Zirve",
+      "role": "SEO Uzmanı",
+      "type": "agent",
+      "skills": ["anahtar-kelime-niyet-kumeleme", "seo-icerik-motoru", "teknik-seo-denetcisi", "buyume-dongusu-tasarimci", "icerik-optimizasyon-motoru", "cok-dilli-seo-motoru"]
+    },
+    "gozcu": {
+      "display_name": "Gözcü",
+      "role": "Observer (Meta-Ajan)",
+      "type": "meta",
+      "skills": ["cikti-kalite-skorlama", "anomali-tespiti", "surekli-iyilestirme", "ogrenme-dongusu"]
+    }
+  }
+}

@@ -1,0 +1,199 @@
+# Agentic Takım — local geliştirme stack'i
+# Profiller: core | ai | memory | observability
+# Başlat: docker compose -f infra/compose/docker-compose.yml --profile core up -d
+#
+# Mimari kuralı: Web → control-plane (FastAPI) → NATS → agents. Web doğrudan
+# veritabanı/agent'lara konuşmaz; tek backend control-plane'dir.
+
+name: agentic
+
+networks:
+  default:
+    name: agentic-net
+
+volumes:
+  postgres-data:
+  redis-data:
+  nats-data:
+  qdrant-data:
+
+services:
+  # ---------------------------------------------------------------- core ----
+  postgres:
+    image: postgres:16.4-alpine
+    profiles: ["core"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentic_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-agentic_os}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentic} -d ${POSTGRES_DB:-agentic_os}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    profiles: ["core"]
+    command: ["redis-server", "--save", "60", "1"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10.22-alpine
+    profiles: ["core"]
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: services/control-plane/Dockerfile
+    profiles: ["core"]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      NATS_URL: ${NATS_URL}
+      QDRANT_URL: ${QDRANT_URL}
+      LITELLM_URL: ${LITELLM_URL}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      LLM_AVAILABLE: ${LLM_AVAILABLE:-false}
+      MEMORY_AVAILABLE: ${MEMORY_AVAILABLE:-false}
+      OBSERVABILITY_AVAILABLE: ${OBSERVABILITY_AVAILABLE:-false}
+    ports:
+      - "${CONTROL_PLANE_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  agent-runner:
+    build:
+      context: ../..
+      dockerfile: services/agent-runner/Dockerfile
+    profiles: ["core"]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NATS_URL: ${NATS_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: services/worker/Dockerfile
+    profiles: ["core"]
+    env_file: ../../.env
+    environment:
+      NATS_URL: ${NATS_URL}
+      REDIS_URL: ${REDIS_URL}
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    profiles: ["core"]
+    environment:
+      NEXT_PUBLIC_CONTROL_PLANE_URL: ${NEXT_PUBLIC_CONTROL_PLANE_URL:-http://localhost:8000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - control-plane
+
+  # ------------------------------------------------------------------ ai ----
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    profiles: ["ai"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file: ../../.env
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-master-dev}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ../litellm/litellm_config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness').status==200 else 1)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # -------------------------------------------------------------- memory ----
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    profiles: ["memory"]
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ------------------------------------------------------- observability ----
+  langfuse:
+    image: langfuse/langfuse:2
+    profiles: ["observability"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agentic}:${POSTGRES_PASSWORD:-agentic_dev_pw}@postgres:5432/${LANGFUSE_DB:-langfuse}
+      NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3001}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-langfuse-secret}
+      SALT: ${SALT:-change-me-langfuse-salt}
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "${LANGFUSE_PORT:-3001}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    profiles: ["observability"]
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ../otel/otel-collector-config.yaml:/etc/otel/config.yaml:ro
