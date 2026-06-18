@@ -10,10 +10,12 @@ uçtan uca çalıştırmak.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from agentic_schemas.acp.v1 import TaskMessage, TaskPayload
 from agentic_schemas.events.v1 import Subject
@@ -21,7 +23,7 @@ from agentic_schemas.events.v1 import Subject
 from . import planner
 from .config import settings
 from .db import SessionLocal
-from .models import Task, TaskNode
+from .models import Task, TaskNode, TaskPlanVersion
 from .routing import route
 
 _lock = asyncio.Lock()
@@ -77,19 +79,102 @@ async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[li
     return plan, source, error
 
 
-async def start_workflow(js, goal: str, skill: str | None, wtype: str | None) -> dict:
+async def _emit_event(js, event: str, task_id: str, actor: str, version: int) -> None:
+    """Onay yaşam döngüsü olayı — ACP.SYSTEM.EVENT (best-effort, audit zemini)."""
+    try:
+        payload = {
+            "event": event, "task_id": task_id, "actor": actor, "version": version,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await js.publish(Subject.SYSTEM_EVENT.value, json.dumps(payload).encode())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _build_nodes(s, task_id: str, plan: list[dict]) -> None:
+    for n in plan:
+        s.add(TaskNode(id=str(uuid4()), task_id=task_id, node_key=n["key"], agent=n["agent"],
+                       skill=n["skill"], depends_on=n["depends_on"], status="pending"))
+
+
+async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
+                         require_approval: bool = False, actor: str = "anonymous") -> dict:
     task_id = str(uuid4())
     plan, source, error = await decompose(goal, skill, wtype)
+    status = "awaiting_approval" if require_approval else "running"
     async with _lock:
         async with SessionLocal() as s:
-            s.add(Task(id=task_id, trace_id=task_id, agent="kaptan", skill=skill, goal=goal, status="running", plan=plan))
-            for n in plan:
-                s.add(TaskNode(id=str(uuid4()), task_id=task_id, node_key=n["key"], agent=n["agent"],
-                               skill=n["skill"], depends_on=n["depends_on"], status="pending"))
+            s.add(Task(id=task_id, trace_id=task_id, agent="kaptan", skill=skill, goal=goal,
+                       status=status, plan=plan, require_approval=require_approval,
+                       current_plan_version=1, last_modified_by=actor))
+            s.add(TaskPlanVersion(id=str(uuid4()), task_id=task_id, version=1, plan_json=plan, created_by=actor))
+            _build_nodes(s, task_id, plan)
             await s.flush()
-            await _dispatch_ready(s, js, task_id, goal)
+            if require_approval:
+                await _emit_event(js, "approval.requested", task_id, actor, 1)
+            else:
+                await _dispatch_ready(s, js, task_id, goal)
             await s.commit()
-    return {"task_id": task_id, "status": "running", "planner": source, "planner_error": error, "plan": plan}
+    return {"task_id": task_id, "status": status, "planner": source, "planner_error": error,
+            "version": 1, "plan": plan}
+
+
+async def approve(js, task_id: str, actor: str = "anonymous") -> dict:
+    async with _lock:
+        async with SessionLocal() as s:
+            task = await s.get(Task, task_id)
+            if task is None:
+                return {"error": "not_found"}
+            if task.status != "awaiting_approval":
+                return {"error": "invalid_state", "status": task.status}
+            task.status = "running"
+            task.last_modified_by = actor
+            await s.flush()
+            await _dispatch_ready(s, js, task_id, task.goal)
+            await _emit_event(js, "approval.approved", task_id, actor, task.current_plan_version)
+            await s.commit()
+            return {"task_id": task_id, "status": "running"}
+
+
+async def reject(js, task_id: str, actor: str = "anonymous", reason: str | None = None) -> dict:
+    async with _lock:
+        async with SessionLocal() as s:
+            task = await s.get(Task, task_id)
+            if task is None:
+                return {"error": "not_found"}
+            if task.status != "awaiting_approval":
+                return {"error": "invalid_state", "status": task.status}
+            task.status = "cancelled"
+            task.error = reason
+            task.last_modified_by = actor
+            await _emit_event(js, "approval.rejected", task_id, actor, task.current_plan_version)
+            await s.commit()
+            return {"task_id": task_id, "status": "cancelled"}
+
+
+async def edit(js, task_id: str, actor: str, nodes: list[dict]) -> dict:
+    clean, err = planner.validate_plan_nodes(nodes)
+    if clean is None:
+        return {"error": "invalid_plan", "reason": err}
+    for n in clean:
+        n["agent"] = route(n["skill"])
+    async with _lock:
+        async with SessionLocal() as s:
+            task = await s.get(Task, task_id)
+            if task is None:
+                return {"error": "not_found"}
+            if task.status != "awaiting_approval":
+                return {"error": "invalid_state", "status": task.status}
+            new_version = task.current_plan_version + 1
+            task.plan = clean
+            task.current_plan_version = new_version
+            task.last_modified_by = actor
+            s.add(TaskPlanVersion(id=str(uuid4()), task_id=task_id, version=new_version, plan_json=clean, created_by=actor))
+            await s.execute(delete(TaskNode).where(TaskNode.task_id == task_id))
+            _build_nodes(s, task_id, clean)
+            await _emit_event(js, "approval.edited", task_id, actor, new_version)
+            await s.commit()
+            return {"task_id": task_id, "status": "awaiting_approval", "version": new_version, "plan": clean}
 
 
 async def _dispatch_ready(s, js, task_id: str, goal: str) -> None:

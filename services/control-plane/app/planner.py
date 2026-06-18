@@ -74,23 +74,34 @@ def _is_acyclic(nodes: list[_PlanNode]) -> bool:
     return seen == len(nodes)
 
 
+def validate_plan_nodes(nodes: list[dict] | list) -> tuple[list[dict] | None, str | None]:
+    """Bir node listesini (LLM çıktısı veya kullanıcı edit'i) guardrail'lerden geçirir.
+
+    skill whitelist + benzersiz key + asiklik + ≤MAX_NODES + boş değil.
+    """
+    try:
+        parsed = [_PlanNode.model_validate(n) for n in nodes]
+    except ValidationError:
+        return None, "schema_invalid"
+    if not parsed:
+        return None, "empty"
+    if len(parsed) > MAX_NODES:
+        return None, "schema_invalid"
+    if any(n.skill not in _allowed_skills() for n in parsed):
+        return None, "schema_invalid"  # halüsine/uydurma skill
+    if len({n.key for n in parsed}) != len(parsed):
+        return None, "schema_invalid"
+    if not _is_acyclic(parsed):
+        return None, "schema_invalid"
+    return [{"key": n.key, "skill": n.skill, "depends_on": n.depends_on} for n in parsed], None
+
+
 def _validate(raw: str) -> tuple[list[dict] | None, str | None]:
     try:
         plan = _Plan.model_validate_json(raw)
     except ValidationError:
         return None, "schema_invalid"
-    if not plan.nodes:
-        return None, "empty"
-    if len(plan.nodes) > MAX_NODES:
-        return None, "schema_invalid"
-    allowed = _allowed_skills()
-    if any(n.skill not in allowed for n in plan.nodes):
-        return None, "schema_invalid"  # halüsine/uydurma skill
-    if len({n.key for n in plan.nodes}) != len(plan.nodes):
-        return None, "schema_invalid"
-    if not _is_acyclic(plan.nodes):
-        return None, "schema_invalid"
-    return [{"key": n.key, "skill": n.skill, "depends_on": n.depends_on} for n in plan.nodes], None
+    return validate_plan_nodes([n.model_dump() for n in plan.nodes])
 
 
 async def llm_plan(goal: str) -> tuple[list[dict] | None, str | None]:

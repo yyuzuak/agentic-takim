@@ -65,17 +65,87 @@ async def list_agents(session: AsyncSession = Depends(get_session)) -> dict:
 # --------------------------------------------------------------- tasks ------
 class TaskIn(BaseModel):
     goal: str
-    skill: str | None = None  # verilirse tek düğüm; verilmezse Kaptan DAG'a böler
-    type: str | None = None   # "build" | "research" (opsiyonel; yoksa hedeften çıkarılır)
+    skill: str | None = None       # verilirse tek düğüm; verilmezse Kaptan DAG'a böler
+    type: str | None = None        # "build" | "research" (opsiyonel)
+    require_approval: bool = False  # true → awaiting_approval (HITL)
+    actor: str = "anonymous"
+
+
+class ActorIn(BaseModel):
+    actor: str = "anonymous"
+
+
+class RejectIn(BaseModel):
+    actor: str = "anonymous"
+    reason: str | None = None
+
+
+class EditIn(BaseModel):
+    actor: str = "anonymous"
+    nodes: list[dict]
+
+
+def _raise_for(result: dict) -> None:
+    err = result.get("error")
+    if err == "not_found":
+        raise HTTPException(404, "görev bulunamadı")
+    if err == "invalid_state":
+        raise HTTPException(409, f"geçersiz durum geçişi (mevcut: {result.get('status')})")
+    if err == "invalid_plan":
+        raise HTTPException(422, f"geçersiz plan: {result.get('reason')}")
 
 
 @app.post("/tasks", status_code=202)
 async def create_task(body: TaskIn, request: Request) -> dict:
-    """Kaptan: intent parsing + DAG decomposition + dağıtım. trace_id = task id."""
+    """Kaptan: intent parsing + DAG decomposition. require_approval ise HITL kapısı."""
     js = request.app.state.js
     if js is None:
         raise HTTPException(503, "NATS bus hazır değil")
-    return await orchestrator.start_workflow(js, body.goal, body.skill, body.type)
+    return await orchestrator.start_workflow(js, body.goal, body.skill, body.type, body.require_approval, body.actor)
+
+
+@app.get("/tasks/{task_id}/plan")
+async def get_plan(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    task = await session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(404, "görev bulunamadı")
+    return {"task_id": task.id, "version": task.current_plan_version, "plan": task.plan}
+
+
+@app.get("/tasks/{task_id}/approval")
+async def get_approval(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    task = await session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(404, "görev bulunamadı")
+    return {
+        "task_id": task.id,
+        "status": task.status,
+        "version": task.current_plan_version,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "last_modified_by": task.last_modified_by,
+        "approval_deadline": task.approval_deadline.isoformat() if task.approval_deadline else None,
+    }
+
+
+@app.post("/tasks/{task_id}/approve")
+async def approve_task(task_id: str, body: ActorIn, request: Request) -> dict:
+    result = await orchestrator.approve(request.app.state.js, task_id, body.actor)
+    _raise_for(result)
+    return result
+
+
+@app.post("/tasks/{task_id}/reject")
+async def reject_task(task_id: str, body: RejectIn, request: Request) -> dict:
+    result = await orchestrator.reject(request.app.state.js, task_id, body.actor, body.reason)
+    _raise_for(result)
+    return result
+
+
+@app.post("/tasks/{task_id}/edit")
+async def edit_task(task_id: str, body: EditIn, request: Request) -> dict:
+    result = await orchestrator.edit(request.app.state.js, task_id, body.actor, body.nodes)
+    _raise_for(result)
+    return result
 
 
 @app.get("/tasks/{task_id}")
