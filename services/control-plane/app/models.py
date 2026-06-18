@@ -44,9 +44,26 @@ class Task(Base):
     skill: Mapped[str | None] = mapped_column(String, nullable=True)
     goal: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    plan: Mapped[list | None] = mapped_column(JSON, nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class TaskNode(Base):
+    """DAG düğümü — bir alt görev. depends_on, aynı task içindeki node_key'lere referans."""
+    __tablename__ = "task_nodes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    node_key: Mapped[str] = mapped_column(String, nullable=False)
+    agent: Mapped[str] = mapped_column(String, nullable=False)
+    skill: Mapped[str | None] = mapped_column(String, nullable=True)
+    depends_on: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    msg_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

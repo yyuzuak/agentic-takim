@@ -1,23 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from contextlib import asynccontextmanager
-from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentic_schemas.acp.v1 import TaskMessage, TaskPayload
-from agentic_schemas.events.v1 import Subject
-
-from . import bus
+from . import bus, orchestrator
 from .config import settings
 from .db import get_session
-from .models import Agent, AgentSkill, Task
-from .routing import route
+from .models import Agent, AgentSkill, Task, TaskNode
 
 
 @asynccontextmanager
@@ -71,36 +65,17 @@ async def list_agents(session: AsyncSession = Depends(get_session)) -> dict:
 # --------------------------------------------------------------- tasks ------
 class TaskIn(BaseModel):
     goal: str
-    skill: str | None = None
+    skill: str | None = None  # verilirse tek düğüm; verilmezse Kaptan DAG'a böler
+    type: str | None = None   # "build" | "research" (opsiyonel; yoksa hedeften çıkarılır)
 
 
 @app.post("/tasks", status_code=202)
-async def create_task(body: TaskIn, request: Request, session: AsyncSession = Depends(get_session)) -> dict:
-    """Kaptan: skill→agent route + ACP.TASK.CREATED yayını. trace_id = task id."""
+async def create_task(body: TaskIn, request: Request) -> dict:
+    """Kaptan: intent parsing + DAG decomposition + dağıtım. trace_id = task id."""
     js = request.app.state.js
     if js is None:
         raise HTTPException(503, "NATS bus hazır değil")
-
-    task_id = str(uuid4())
-    agent = route(body.skill)
-
-    task = Task(id=task_id, trace_id=task_id, agent=agent, skill=body.skill, goal=body.goal, status="pending")
-    session.add(task)
-    await session.commit()
-
-    msg = TaskMessage(
-        from_agent="kaptan",
-        to_agent=agent,
-        trace_id=UUID(task_id),
-        skill=body.skill,
-        timestamp=int(time.time()),
-        payload=TaskPayload(goal=body.goal),
-    )
-    await js.publish(Subject.TASK_CREATED.value, msg.model_dump_json(by_alias=True).encode())
-
-    task.status = "running"
-    await session.commit()
-    return {"task_id": task_id, "agent": agent, "skill": body.skill, "status": "running"}
+    return await orchestrator.start_workflow(js, body.goal, body.skill, body.type)
 
 
 @app.get("/tasks/{task_id}")
@@ -108,14 +83,18 @@ async def get_task(task_id: str, session: AsyncSession = Depends(get_session)) -
     task = await session.get(Task, task_id)
     if task is None:
         raise HTTPException(404, "görev bulunamadı")
+    nodes = (await session.execute(select(TaskNode).where(TaskNode.task_id == task_id))).scalars().all()
     return {
         "id": task.id,
-        "agent": task.agent,
-        "skill": task.skill,
         "goal": task.goal,
         "status": task.status,
         "result": task.result,
         "error": task.error,
+        "nodes": [
+            {"key": n.node_key, "agent": n.agent, "skill": n.skill, "depends_on": n.depends_on,
+             "status": n.status, "result": n.result}
+            for n in sorted(nodes, key=lambda x: x.node_key)
+        ],
     }
 
 

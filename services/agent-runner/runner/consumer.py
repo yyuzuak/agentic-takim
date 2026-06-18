@@ -36,9 +36,12 @@ async def run() -> None:
             try:
                 task = TaskMessage.model_validate(json.loads(msg.data))
                 trace_id = str(task.trace_id)
+                # thread_id node başına benzersiz olmalı (message_id); aksi halde aynı
+                # workflow'un düğümleri checkpoint thread'ini paylaşır ve resume eder.
+                thread_id = str(task.message_id)
                 state = await graph.ainvoke(
                     {"goal": task.payload.goal, "steps": []},
-                    {"configurable": {"thread_id": trace_id}},
+                    {"configurable": {"thread_id": thread_id}},
                 )
                 result = ResultMessage(
                     from_agent=task.to_agent,
