@@ -31,3 +31,6 @@ infra/**/data/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# CodeGraph (yerel index)
+.codegraph/

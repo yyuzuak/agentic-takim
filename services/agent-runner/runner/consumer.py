@@ -7,8 +7,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import time
-from uuid import UUID
 
 import nats
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -32,41 +32,65 @@ async def run() -> None:
         await cp.setup()
         graph = build_graph().compile(checkpointer=cp)
 
+        async def _publish_failed(task: TaskMessage, code: ErrorCode, message: str) -> None:
+            err = ErrorMessage(
+                from_agent="agent-runner", to_agent="kaptan", trace_id=task.trace_id,
+                in_reply_to=task.message_id, timestamp=int(time.time()), error_code=code, message=message,
+            )
+            await js.publish(Subject.TASK_FAILED.value, err.model_dump_json(by_alias=True).encode())
+
+        def _should_inject_fail(inputs: dict) -> ErrorCode | None:
+            """Test aracı: fail_node (hedef düğüm) / fail_times / fail_at_attempt / fail_percentage."""
+            target = inputs.get("fail_node")
+            if target is not None and target != inputs.get("node"):
+                return None  # bu düğüm hedef değil
+            attempt = int(inputs.get("attempt", 0))
+            code_str = inputs.get("fail_code", "TRANSIENT")
+            trigger = (
+                attempt < int(inputs.get("fail_times", 0))
+                or (inputs.get("fail_at_attempt") is not None and attempt == int(inputs["fail_at_attempt"]))
+                or (inputs.get("fail_percentage") and random.random() < float(inputs["fail_percentage"]))
+            )
+            if not trigger:
+                return None
+            try:
+                return ErrorCode(code_str)
+            except ValueError:
+                return ErrorCode.TRANSIENT
+
         async def handle(msg) -> None:
             try:
                 task = TaskMessage.model_validate(json.loads(msg.data))
                 trace_id = str(task.trace_id)
-                # thread_id node başına benzersiz olmalı (message_id); aksi halde aynı
-                # workflow'un düğümleri checkpoint thread'ini paylaşır ve resume eder.
-                thread_id = str(task.message_id)
+                inputs = task.payload.inputs or {}
+
+                # Fault injection (kontrollü hata — retry/DLQ testleri için)
+                inject = _should_inject_fail(inputs)
+                if inject is not None:
+                    await _publish_failed(task, inject, f"injected failure ({inject.value}) attempt={inputs.get('attempt', 0)}")
+                    print(f"[agent-runner] ⚠ injected fail trace={trace_id} code={inject.value}")
+                    await msg.ack()
+                    return
+
+                # thread_id node başına benzersiz (message_id) — checkpoint izolasyonu
                 state = await graph.ainvoke(
                     {"goal": task.payload.goal, "steps": []},
-                    {"configurable": {"thread_id": thread_id}},
+                    {"configurable": {"thread_id": str(task.message_id)}},
                 )
                 result = ResultMessage(
-                    from_agent=task.to_agent,
-                    to_agent="kaptan",
-                    trace_id=task.trace_id,
-                    in_reply_to=task.message_id,
-                    skill=task.skill,
-                    timestamp=int(time.time()),
-                    payload=ResultPayload(result={"steps": state["steps"]}, confidence=1.0),
+                    from_agent=task.to_agent, to_agent="kaptan", trace_id=task.trace_id,
+                    in_reply_to=task.message_id, skill=task.skill, timestamp=int(time.time()),
+                    payload=ResultPayload(result={"steps": state["steps"], "exec_id": inputs.get("exec_id")}, confidence=1.0),
                 )
                 await js.publish(Subject.TASK_COMPLETED.value, result.model_dump_json(by_alias=True).encode())
                 print(f"[agent-runner] ✓ tamamlandı trace={trace_id} agent={task.to_agent}")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — gerçek (injection değil) hata
                 print(f"[agent-runner] ✗ hata: {e}")
                 try:
                     env = json.loads(msg.data)
-                    err = ErrorMessage(
-                        from_agent="agent-runner",
-                        to_agent="kaptan",
-                        trace_id=UUID(env["trace_id"]),
-                        timestamp=int(time.time()),
-                        error_code=ErrorCode.LOGICAL,
-                        message=str(e),
+                    await _publish_failed(
+                        TaskMessage.model_validate(env), ErrorCode.UNKNOWN, str(e)
                     )
-                    await js.publish(Subject.TASK_FAILED.value, err.model_dump_json(by_alias=True).encode())
                 except Exception:  # noqa: BLE001
                     pass
             finally:

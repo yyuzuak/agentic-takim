@@ -192,6 +192,25 @@ curl -X POST localhost:8000/tasks/<id>/approve -d '{"actor":"yasin"}'
 ```
 Edit her seferinde plan'ın **değişmez bir sürümünü** (`task_plan_versions`) saklar (audit zemini). `actor` alanı RBAC/audit için taşınır.
 
+### Retry & Failure (v0.6)
+Düğüm hataları sınıflandırılır (ACP `ErrorCode`) ve retry politikasına göre yeniden denenir. **Postgres = source of truth, NATS = signal.**
+```bash
+# Fault injection ile retry → başarı (ilk 2 deneme fail, sonra success)
+curl -X POST localhost:8000/tasks -H 'Content-Type: application/json' \
+  -d '{"goal":"X","skill":"prd-uretici","inputs":{"fail_times":2},"max_retries":3}'
+# node: retry_count=2 → done; workflow done
+
+# Tükenme → DLQ
+curl -X POST localhost:8000/tasks -d '{"goal":"X","skill":"prd-uretici","inputs":{"fail_times":99},"max_retries":2}'
+curl localhost:8000/tasks/<id>/dlq                       # dead_letter_nodes (retry_history dahil)
+curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # replay → DAG devam eder
+```
+- **Retryable:** TRANSIENT, TIMEOUT, UNKNOWN · **Non-retryable:** SCHEMA, PERMISSION, LOGICAL, BUDGET (anında DLQ).
+- **Policy:** `immediate | exponential` (varsayılan, +jitter) `| manual` (ilk hatada DLQ → `POST /tasks/{id}/nodes/{key}/retry`).
+- **Scheduler:** Postgres `retry_at` + `FOR UPDATE SKIP LOCKED` (async-sleep değil, dağıtık-güvenli).
+- **Exactly-once:** `exec_id = sha256(task:node:attempt)` + `processed_executions` → çift teslimat yok sayılır.
+- **DAG-safe:** retry'daki düğümün child'ı asla çalışmaz; bağımsız düğümler devam eder.
+
 ---
 
 ## Troubleshooting
@@ -220,7 +239,9 @@ Edit her seferinde plan'ın **değişmez bir sürümünü** (`task_plan_versions
 - [x] **Human-in-the-Loop** — DAG preview → approve/edit/reject → execute; plan versioning,
       actor metadata, durable `awaiting_approval` (Postgres; restart sonrası approve çalışır)
 - [ ] v0.5.1 Audit Trail (kim/ne/ne zaman)
-- [ ] v0.6 Retry + Failure Semantics (TaskNode retry_policy)
+- [x] **v0.6 Retry + Failure Semantics** — node fault model (retry_count/max_retries/policy),
+      failure taxonomy (ACP ErrorCode), Postgres retry scheduler (exponential+jitter, SKIP LOCKED),
+      fingerprint dedup (exactly-once final state), DLQ (Postgres+NATS) + replay
 - [ ] v0.7 Multi-Agent Collaboration
 - [ ] v0.8 Memory-Aware Planning (Qdrant RAG recall)
 - [ ] v0.9 Tool Execution Framework

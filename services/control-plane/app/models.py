@@ -52,6 +52,8 @@ class Task(Base):
     current_plan_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_modified_by: Mapped[str | None] = mapped_column(String, nullable=True)
     approval_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v0.6 — düğüm payload'ına geçen ortak girdiler (fault injection + genel)
+    inputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -70,6 +72,31 @@ class TaskPlanVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DeadLetterNode(Base):
+    """Kalıcı başarısız düğüm — DLQ source of truth (audit + replay)."""
+    __tablename__ = "dead_letter_nodes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String, index=True)
+    node_id: Mapped[str] = mapped_column(String, index=True)
+    node_key: Mapped[str] = mapped_column(String, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_history: Mapped[list | None] = mapped_column(JSON, default=list)
+    dag_context_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    dependency_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProcessedExecution(Base):
+    """Fingerprint dedup — her node execution bir kez kesinleşir (exactly-once final state)."""
+    __tablename__ = "processed_executions"
+
+    exec_id: Mapped[str] = mapped_column(String, primary_key=True)
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TaskNode(Base):
     """DAG düğümü — bir alt görev. depends_on, aynı task içindeki node_key'lere referans."""
     __tablename__ = "task_nodes"
@@ -84,3 +111,13 @@ class TaskNode(Base):
     msg_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # v0.6 — fault model / retry
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    retry_policy: Mapped[str] = mapped_column(String, nullable=False, default="exponential")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    exec_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    retry_history: Mapped[list | None] = mapped_column(JSON, default=list)

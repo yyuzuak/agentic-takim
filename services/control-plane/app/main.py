@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import bus, orchestrator
 from .config import settings
 from .db import get_session
-from .models import Agent, AgentSkill, Task, TaskNode
+from .models import Agent, AgentSkill, DeadLetterNode, Task, TaskNode
 
 
 @asynccontextmanager
@@ -23,12 +23,14 @@ async def lifespan(app: FastAPI):
         app.state.nc = nc
         app.state.js = nc.jetstream()
         app.state._consumer = asyncio.create_task(bus.result_consumer(app.state.js))
+        app.state._scheduler = asyncio.create_task(orchestrator.retry_scheduler(app.state.js))
     except Exception as e:  # noqa: BLE001 — NATS yoksa /health yine ayakta kalmalı
         print(f"! NATS bağlantısı kurulamadı: {e}")
     yield
-    task = getattr(app.state, "_consumer", None)
-    if task:
-        task.cancel()
+    for attr in ("_consumer", "_scheduler"):
+        t = getattr(app.state, attr, None)
+        if t:
+            t.cancel()
     if app.state.nc:
         await app.state.nc.drain()
 
@@ -69,6 +71,9 @@ class TaskIn(BaseModel):
     type: str | None = None        # "build" | "research" (opsiyonel)
     require_approval: bool = False  # true → awaiting_approval (HITL)
     actor: str = "anonymous"
+    inputs: dict = {}               # düğüm payload'ına geçer (fault injection vb.)
+    retry_policy: str | None = None  # immediate | exponential | manual
+    max_retries: int | None = None
 
 
 class ActorIn(BaseModel):
@@ -83,6 +88,11 @@ class RejectIn(BaseModel):
 class EditIn(BaseModel):
     actor: str = "anonymous"
     nodes: list[dict]
+
+
+class ReplayIn(BaseModel):
+    actor: str = "anonymous"
+    reset_retries: bool = True
 
 
 def _raise_for(result: dict) -> None:
@@ -101,7 +111,10 @@ async def create_task(body: TaskIn, request: Request) -> dict:
     js = request.app.state.js
     if js is None:
         raise HTTPException(503, "NATS bus hazır değil")
-    return await orchestrator.start_workflow(js, body.goal, body.skill, body.type, body.require_approval, body.actor)
+    return await orchestrator.start_workflow(
+        js, body.goal, body.skill, body.type, body.require_approval, body.actor,
+        body.inputs, body.retry_policy, body.max_retries,
+    )
 
 
 @app.get("/tasks/{task_id}/plan")
@@ -162,10 +175,42 @@ async def get_task(task_id: str, session: AsyncSession = Depends(get_session)) -
         "error": task.error,
         "nodes": [
             {"key": n.node_key, "agent": n.agent, "skill": n.skill, "depends_on": n.depends_on,
-             "status": n.status, "result": n.result}
+             "status": n.status, "result": n.result, "retry_count": n.retry_count,
+             "max_retries": n.max_retries, "retry_policy": n.retry_policy, "error_code": n.error_code,
+             "retry_at": n.retry_at.isoformat() if n.retry_at else None}
             for n in sorted(nodes, key=lambda x: x.node_key)
         ],
     }
+
+
+@app.get("/tasks/{task_id}/dlq")
+async def get_dlq(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(select(DeadLetterNode).where(DeadLetterNode.task_id == task_id))).scalars().all()
+    return {"count": len(rows), "dead_letter_nodes": [
+        {"node_id": r.node_id, "node_key": r.node_key, "error_code": r.error_code,
+         "retry_count": r.retry_count, "last_error": r.last_error, "retry_history": r.retry_history}
+        for r in rows
+    ]}
+
+
+@app.post("/tasks/{task_id}/nodes/{node_key}/retry")
+async def retry_node(task_id: str, node_key: str, body: ActorIn, request: Request) -> dict:
+    result = await orchestrator.manual_retry(request.app.state.js, task_id, node_key, body.actor)
+    _raise_for(result)
+    return result
+
+
+@app.post("/dlq/{node_id}/replay")
+async def replay_dlq(node_id: str, body: ReplayIn, request: Request) -> dict:
+    result = await orchestrator.dlq_replay(request.app.state.js, node_id, body.actor, body.reset_retries)
+    _raise_for(result)
+    return result
+
+
+@app.get("/metrics")
+async def metrics() -> dict:
+    """Retry/DLQ orkestrasyon sayaçları (hybrid event+DB debugging)."""
+    return dict(orchestrator._metrics)
 
 
 @app.get("/")
