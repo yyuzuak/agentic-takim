@@ -23,10 +23,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from agentic_schemas.acp.v1 import TaskMessage, TaskPayload
 from agentic_schemas.events.v1 import Subject
 
-from . import planner
+from . import context_reducer, planner
 from .config import settings
 from .db import SessionLocal
-from .models import DeadLetterNode, ProcessedExecution, Task, TaskNode, TaskPlanVersion
+from .models import (
+    DeadLetterNode,
+    ProcessedExecution,
+    Task,
+    TaskContextEvent,
+    TaskContextSnapshot,
+    TaskNode,
+    TaskPlanVersion,
+)
 from .routing import route
 
 _lock = asyncio.Lock()
@@ -73,18 +81,29 @@ _RESEARCH = [
     ("t2", "rakip-tersine-muhendislik", ["t1"]),
     ("t3", "onceliklendirme-motoru", ["t2"]),    # pusula — önceliklendirme
 ]
+# v0.7 collab: producer → critic → synthesizer (acyclic)
+_COLLAB = [
+    ("t1", "prd-uretici", [], "producer"),
+    ("t2", "sistem-mimarisi-uretici", ["t1"], "critic"),
+    ("t3", "fullstack-kod-uretici", ["t1", "t2"], "synthesizer"),
+]
 
 
 def infer_type(goal: str) -> str:
     g = goal.lower()
+    if any(w in g for w in ["eleştir", "elestir", "değerlendir", "degerlendir", "gözden geçir", "critique", "review", "consensus", "uzlaş"]):
+        return "collab"
     if any(w in g for w in ["araştır", "arastir", "analiz", "rapor", "research", "incele"]):
         return "research"
     return "build"
 
 
 def _rule_plan(goal: str, wtype: str | None) -> list[dict]:
-    template = _RESEARCH if (wtype or infer_type(goal)) == "research" else _BUILD
-    return [{"key": k, "skill": s, "depends_on": d} for k, s, d in template]
+    t = wtype or infer_type(goal)
+    if t == "collab":
+        return [{"key": k, "skill": s, "depends_on": d, "role": r} for k, s, d, r in _COLLAB]
+    template = _RESEARCH if t == "research" else _BUILD
+    return [{"key": k, "skill": s, "depends_on": d, "role": "producer"} for k, s, d in template]
 
 
 async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[list[dict], str, str | None]:
@@ -104,9 +123,10 @@ async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[li
             plan, source = nodes, "llm"
         else:
             plan, source = _rule_plan(goal, wtype), "rule"
-    # her düğüme agent'ı route ile ekle
+    # her düğüme agent (route) + role (varsayılan producer) ekle
     for n in plan:
         n["agent"] = route(n["skill"])
+        n.setdefault("role", "producer")
     print(f'[planner] source={source} error={error} nodes={len(plan)} goal="{goal[:60]}"', flush=True)
     return plan, source, error
 
@@ -127,7 +147,15 @@ def _build_nodes(s, task_id: str, plan: list[dict], retry_policy: str, max_retri
     for n in plan:
         s.add(TaskNode(id=str(uuid4()), task_id=task_id, node_key=n["key"], agent=n["agent"],
                        skill=n["skill"], depends_on=n["depends_on"], status="pending",
+                       node_role=n.get("role", "producer"),
                        retry_policy=retry_policy, max_retries=max_retries, retry_history=[]))
+
+
+async def _append_event(s, task_id: str, etype: str, agent: str | None, node_key: str | None,
+                        payload: dict, exec_id: str | None = None) -> None:
+    seq = await context_reducer.next_seq(s, task_id)
+    s.add(TaskContextEvent(id=str(uuid4()), task_id=task_id, seq=seq, type=etype,
+                           agent=agent, node_key=node_key, payload=payload, exec_id=exec_id))
 
 
 async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
@@ -147,6 +175,9 @@ async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
             s.add(TaskPlanVersion(id=str(uuid4()), task_id=task_id, version=1, plan_json=plan, created_by=actor))
             _build_nodes(s, task_id, plan, rp, mr)
             await s.flush()
+            # v0.7 — context init event + snapshot
+            await _append_event(s, task_id, "task.init", "kaptan", None, {"goal": goal})
+            await context_reducer.apply(s, task_id)
             if require_approval:
                 await _emit_event(js, "approval.requested", task_id, actor, 1)
             else:
@@ -219,12 +250,20 @@ async def edit(js, task_id: str, actor: str, nodes: list[dict]) -> dict:
 
 
 async def _dispatch_node(s, js, task: Task, node: TaskNode) -> None:
-    """Tek düğümü yayınlar: yeni exec_id + msg_id, status=running, payload.inputs merge."""
+    """Tek düğümü yayınlar: yeni exec_id + msg_id, status=running; payload'a role+snapshot+node_history."""
     node.exec_id = _exec_id(task.id, node.node_key, node.retry_count)
     inputs = {"node": node.node_key, "attempt": node.retry_count, "exec_id": node.exec_id, **(task.inputs or {})}
+    # güncel snapshot + bağımlılık geçmişi (collaboration context)
+    snap_row = await s.get(TaskContextSnapshot, task.id)
+    snapshot = snap_row.snapshot if snap_row else {}
+    all_nodes = (await s.execute(select(TaskNode).where(TaskNode.task_id == task.id))).scalars().all()
+    by_key = {n.node_key: n for n in all_nodes}
+    node_history = [{"node_key": dk, "agent": by_key[dk].agent} for dk in node.depends_on if dk in by_key]
     msg = TaskMessage(
         from_agent="kaptan", to_agent=node.agent, trace_id=UUID(task.id), skill=node.skill,
-        timestamp=int(time.time()), payload=TaskPayload(goal=task.goal, inputs=inputs),
+        timestamp=int(time.time()),
+        payload=TaskPayload(goal=task.goal, inputs=inputs, node_role=node.node_role,
+                            snapshot=snapshot, node_history=node_history),
     )
     node.msg_id = str(msg.message_id)
     node.status = "running"
@@ -329,7 +368,16 @@ async def on_result(js, env: dict, subject: str) -> None:
             task = await s.get(Task, node.task_id)
             if subject == Subject.TASK_COMPLETED.value:
                 node.status = "done"
-                node.result = env.get("payload", {})
+                payload = env.get("payload", {})
+                node.result = payload
+                # v0.7 — ajanın ürettiği context event'lerini append et (single-writer reducer sonra)
+                for ev in payload.get("events", []) or []:
+                    await _append_event(s, node.task_id, ev.get("type", "artifact.created"),
+                                        ev.get("agent") or node.agent, node.node_key,
+                                        ev.get("payload", {}), exec_id=node.exec_id)
+                await s.flush()
+                await context_reducer.apply(s, node.task_id)
+                await _emit_event(js, "context.updated", node.task_id, node.agent or "?", 0)
             else:
                 code = env.get("error_code") or "UNKNOWN"
                 await _on_node_failed(s, js, task, node, code, env.get("message") or "hata")

@@ -15,6 +15,10 @@ class TaskPayload(BaseModel):
     goal: str
     inputs: dict = Field(default_factory=dict)
     constraints: list[str] = Field(default_factory=list)
+    # v0.7 — collaboration
+    node_role: str = "producer"          # producer | critic | synthesizer
+    snapshot: dict = Field(default_factory=dict)      # dispatch anındaki context snapshot
+    node_history: list[dict] = Field(default_factory=list)  # [{node_key, agent}] bağımlılıklar
 
 
 class ResultPayload(BaseModel):
@@ -23,6 +27,8 @@ class ResultPayload(BaseModel):
     confidence: float = 0.0
     assumptions: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
+    # v0.7 — ajanın ürettiği context event'leri (orchestrator append eder)
+    events: list[dict] = Field(default_factory=list)
 
 
 class HandoffPayload(BaseModel):

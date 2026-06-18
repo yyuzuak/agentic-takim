@@ -24,6 +24,7 @@ class _PlanNode(BaseModel):
     key: str
     skill: str
     depends_on: list[str] = []
+    role: str = "producer"  # producer | critic | synthesizer
 
 
 class _Plan(BaseModel):
@@ -93,7 +94,7 @@ def validate_plan_nodes(nodes: list[dict] | list) -> tuple[list[dict] | None, st
         return None, "schema_invalid"
     if not _is_acyclic(parsed):
         return None, "schema_invalid"
-    return [{"key": n.key, "skill": n.skill, "depends_on": n.depends_on} for n in parsed], None
+    return [{"key": n.key, "skill": n.skill, "depends_on": n.depends_on, "role": n.role} for n in parsed], None
 
 
 def _validate(raw: str) -> tuple[list[dict] | None, str | None]:

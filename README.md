@@ -242,7 +242,9 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
 - [x] **v0.6 Retry + Failure Semantics** — node fault model (retry_count/max_retries/policy),
       failure taxonomy (ACP ErrorCode), Postgres retry scheduler (exponential+jitter, SKIP LOCKED),
       fingerprint dedup (exactly-once final state), DLQ (Postgres+NATS) + replay
-- [ ] v0.7 Multi-Agent Collaboration
+- [x] **v0.7 Multi-Agent Collaboration** — event-sourced context (append-only events + deterministic
+      reducer → snapshot, single-writer), producer/critic/synthesizer rolleri, artifact+critique
+      projeksiyonları; critic producer'ı değiştirmez (provenance korunur)
 - [ ] v0.8 Memory-Aware Planning (Qdrant RAG recall)
 - [ ] v0.9 Tool Execution Framework
 - [ ] v1.0 Agentic OS MVP (Web: sohbet + canlı trace; Gözcü kalite skorlama)

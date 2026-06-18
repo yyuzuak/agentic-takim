@@ -11,7 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import bus, orchestrator
 from .config import settings
 from .db import get_session
-from .models import Agent, AgentSkill, DeadLetterNode, Task, TaskNode
+from .models import (
+    Agent,
+    AgentSkill,
+    DeadLetterNode,
+    Task,
+    TaskContextEvent,
+    TaskContextSnapshot,
+    TaskNode,
+)
 
 
 @asynccontextmanager
@@ -174,7 +182,7 @@ async def get_task(task_id: str, session: AsyncSession = Depends(get_session)) -
         "result": task.result,
         "error": task.error,
         "nodes": [
-            {"key": n.node_key, "agent": n.agent, "skill": n.skill, "depends_on": n.depends_on,
+            {"key": n.node_key, "agent": n.agent, "skill": n.skill, "role": n.node_role, "depends_on": n.depends_on,
              "status": n.status, "result": n.result, "retry_count": n.retry_count,
              "max_retries": n.max_retries, "retry_policy": n.retry_policy, "error_code": n.error_code,
              "retry_at": n.retry_at.isoformat() if n.retry_at else None}
@@ -205,6 +213,25 @@ async def replay_dlq(node_id: str, body: ReplayIn, request: Request) -> dict:
     result = await orchestrator.dlq_replay(request.app.state.js, node_id, body.actor, body.reset_retries)
     _raise_for(result)
     return result
+
+
+@app.get("/tasks/{task_id}/context")
+async def get_context(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    snap = await session.get(TaskContextSnapshot, task_id)
+    if snap is None:
+        raise HTTPException(404, "context bulunamadı")
+    return {"task_id": task_id, "version": snap.version, "snapshot": snap.snapshot}
+
+
+@app.get("/tasks/{task_id}/events")
+async def get_events(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(
+        select(TaskContextEvent).where(TaskContextEvent.task_id == task_id).order_by(TaskContextEvent.seq)
+    )).scalars().all()
+    return {"count": len(rows), "events": [
+        {"seq": r.seq, "type": r.type, "agent": r.agent, "node_key": r.node_key, "payload": r.payload}
+        for r in rows
+    ]}
 
 
 @app.get("/metrics")
