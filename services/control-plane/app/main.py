@@ -118,6 +118,18 @@ def _raise_for(result: dict) -> None:
         raise HTTPException(422, f"geçersiz plan: {result.get('reason')}")
 
 
+@app.get("/tasks")
+async def list_tasks(limit: int = 50, session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(
+        select(Task).order_by(Task.created_at.desc()).limit(limit)
+    )).scalars().all()
+    return {"count": len(rows), "tasks": [
+        {"id": t.id, "goal": t.goal, "status": t.status, "skill": t.skill,
+         "created_at": t.created_at.isoformat() if t.created_at else None}
+        for t in rows
+    ]}
+
+
 @app.post("/tasks", status_code=202)
 async def create_task(body: TaskIn, request: Request) -> dict:
     """Kaptan: intent parsing + DAG decomposition. require_approval ise HITL kapısı."""
