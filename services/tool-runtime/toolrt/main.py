@@ -177,7 +177,8 @@ async def _record_success(s, exec_id, trace_id, node_key, tool, args, attempt,
               "rate_limited": rate_limited, "schema_errors": schema_errors, "finished_at": _now()},
     )
     await s.execute(stmt)
-    await compensator.record_if_needed(s, exec_id, trace_id, node_key, tool, args, catalog)
+    if not dry_run:  # INV-2: dry-run → compensation kaydı YOK
+        await compensator.record_if_needed(s, exec_id, str(trace_id), node_key, tool, args, catalog)
     await s.commit()
 
 
