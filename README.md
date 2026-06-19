@@ -238,7 +238,7 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
       guardrail (skill whitelist, asiklik, ≤8 düğüm) + retry; başarısızsa kural tabanlı fallback
 - [x] **Human-in-the-Loop** — DAG preview → approve/edit/reject → execute; plan versioning,
       actor metadata, durable `awaiting_approval` (Postgres; restart sonrası approve çalışır)
-- [ ] v0.5.1 Audit Trail (kim/ne/ne zaman)
+- [x] v0.5.1 Audit Trail — event-sourced context (v0.7) ile karşılandı; her düğüm geçişi, artifact ve critique olayı append-only `task_context_events`'e yazılır
 - [x] **v0.6 Retry + Failure Semantics** — node fault model (retry_count/max_retries/policy),
       failure taxonomy (ACP ErrorCode), Postgres retry scheduler (exponential+jitter, SKIP LOCKED),
       fingerprint dedup (exactly-once final state), DLQ (Postgres+NATS) + replay
@@ -248,12 +248,14 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
 - [x] **v0.8 Memory-Aware Planning** — geçmiş başarılı görevlerden recall (Qdrant), planner
       enrichment (LLM few-shot / rule template bias); guardrail'ler: MIN_SCORE, diversity,
       confidence+drift, copy-risk telemetry, idempotent two-phase store, retrieval feedback
-- [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
 - [x] **v0.9 Tool Execution Framework** — ayrı Tool Runtime katmanı (ACP.TOOL.REQUEST/RESULT);
       node kinds reasoning|tool|approval; idempotent (at-most-once) + permission + audit (tool_invocations);
       simulated tools (check_stock/create_quote/generate_pdf/send_whatsapp); v0.6 retry/DLQ yeniden kullanımı
-- [ ] v0.9.1 Tool Safety Layer (sandbox/rate-limit/secret/rollback + gerçek adaptörler)
-- [ ] v1.0 Agentic OS MVP (Web: sohbet + canlı trace; Gözcü kalite skorlama)
+- [x] **v0.9.1 Tool Safety Layer** — dry-run modu, runtime+plan-time argüman şema doğrulaması, Redis sliding-window rate-limit (RATE_LIMIT→retry), atomic compensation ledger (tool_compensations), tool_invocations audit genişletme
+- [x] **v1.0 Agentic OS MVP** — Next.js web UI: görev oluştur, canlı DAG görselleştirme (node onay butonu dahil), tool invocation viewer, compensation ledger, audit timeline (event stream), hafıza tarayıcı + recall; GET /tasks list endpoint
+- [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
+- [ ] v1.1 Production Connectors (WhatsApp/ERP/SMTP/Webhook gerçek adaptörler + compensation apply)
+- [ ] v1.2 SaaS Multi-Tenant (organizations, users, roles, billing, API keys)
 
 ---
 
