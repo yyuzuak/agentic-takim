@@ -136,6 +136,25 @@ class TaskArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ToolInvocation(Base):
+    """Tool çağrısı audit + idempotency. UNIQUE(exec_id) → at-most-once yan etki."""
+    __tablename__ = "tool_invocations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String, index=True)
+    node_key: Mapped[str] = mapped_column(String, nullable=False)
+    tool: Mapped[str] = mapped_column(String, nullable=False)
+    args: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    exec_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="requested")  # requested|success|failed
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class MemoryEntry(Base):
     """Memory-aware planning kaydı — Postgres=source of truth, Qdrant=retrieval index.
     Yalnız başarılı (done) görevler girer. UNIQUE(task_id) → idempotent store."""
@@ -204,3 +223,9 @@ class TaskNode(Base):
     # v0.7.1 — refinement loop (forward expansion)
     refine_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     refine_group: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    # v0.9 — node kind (reasoning | tool | approval) + tool spec
+    node_kind: Mapped[str] = mapped_column(String, nullable=False, default="reasoning")
+    tool: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_args: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

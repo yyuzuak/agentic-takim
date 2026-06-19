@@ -105,8 +105,20 @@ _COLLAB = [
 ]
 
 
+# v0.9 fulfillment: tool node DAG (check_stock → create_quote → generate_pdf → approval → send_whatsapp)
+_FULFILLMENT = [
+    ("t1", "tool", "check_stock", {"sku": "HTD-8M-800", "qty": 1}, []),
+    ("t2", "tool", "create_quote", {"customer": "ABC Makina", "items": ["HTD 8M 800"]}, ["t1"]),
+    ("t3", "tool", "generate_pdf", {"quote_id": "from:t2"}, ["t2"]),
+    ("t4", "approval", None, None, ["t3"]),
+    ("t5", "tool", "send_whatsapp", {"to": "+90", "doc": "from:t3"}, ["t4"]),
+]
+
+
 def infer_type(goal: str) -> str:
     g = goal.lower()
+    if any(w in g for w in ["teklif", "quote", "stok", "stock", "whatsapp", "gönder", "gonder", "fatura", "sipariş", "siparis"]):
+        return "fulfillment"
     if any(w in g for w in ["eleştir", "elestir", "değerlendir", "degerlendir", "gözden geçir", "critique", "review", "consensus", "uzlaş"]):
         return "collab"
     if any(w in g for w in ["araştır", "arastir", "analiz", "rapor", "research", "incele"]):
@@ -116,6 +128,9 @@ def infer_type(goal: str) -> str:
 
 def _rule_plan(goal: str, wtype: str | None) -> list[dict]:
     t = wtype or infer_type(goal)
+    if t == "fulfillment":
+        return [{"key": k, "kind": kind, "tool": tool, "args": args, "depends_on": d}
+                for k, kind, tool, args, d in _FULFILLMENT]
     if t == "collab":
         return [{"key": k, "skill": s, "depends_on": d, "role": r} for k, s, d, r in _COLLAB]
     template = _RESEARCH if t == "research" else _BUILD
@@ -157,7 +172,13 @@ async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[li
                 inferred = chosen or inferred
             plan, source = _rule_plan(goal, chosen), "rule"
     for n in plan:
-        n["agent"] = route(n["skill"])
+        kind = n.get("kind", "reasoning")
+        if kind == "tool":
+            n["agent"] = "tool-runtime"
+        elif kind == "approval":
+            n["agent"] = "kaptan"
+        else:
+            n["agent"] = route(n["skill"])
         n.setdefault("role", "producer")
 
     # copy-risk telemetrisi (ölç, bloklama yok)
@@ -189,8 +210,9 @@ def _build_nodes(s, task_id: str, plan: list[dict], retry_policy: str, max_retri
         # refine açıksa critic node'ları bir refine_group başlatır (chain id = node_key)
         group = n["key"] if (refine_enabled and role == "critic") else None
         s.add(TaskNode(id=str(uuid4()), task_id=task_id, node_key=n["key"], agent=n["agent"],
-                       skill=n["skill"], depends_on=n["depends_on"], status="pending",
+                       skill=n.get("skill"), depends_on=n["depends_on"], status="pending",
                        node_role=role, refine_group=group, refine_depth=0,
+                       node_kind=n.get("kind", "reasoning"), tool=n.get("tool"), tool_args=n.get("args"),
                        retry_policy=retry_policy, max_retries=max_retries, retry_history=[]))
 
 
@@ -274,7 +296,8 @@ async def edit(js, task_id: str, actor: str, nodes: list[dict]) -> dict:
     if clean is None:
         return {"error": "invalid_plan", "reason": err}
     for n in clean:
-        n["agent"] = route(n["skill"])
+        kind = n.get("kind", "reasoning")
+        n["agent"] = "tool-runtime" if kind == "tool" else "kaptan" if kind == "approval" else route(n["skill"])
     async with _lock:
         async with SessionLocal() as s:
             task = await s.get(Task, task_id)
@@ -299,11 +322,17 @@ async def edit(js, task_id: str, actor: str, nodes: list[dict]) -> dict:
 
 
 async def _dispatch_node(s, js, task: Task, node: TaskNode) -> None:
-    """Tek düğümü yayınlar: yeni exec_id + msg_id, status=running; payload'a role+snapshot+node_history."""
+    """node_kind'e göre dağıtım: reasoning→TASK.CREATED, tool→TOOL.REQUEST, approval→awaiting."""
+    # approval node: dispatch yok, insan onayı beklenir (node-seviye HITL)
+    if node.node_kind == "approval":
+        node.status = "awaiting_approval"
+        await _emit_event(js, "node.awaiting_approval", task.id, "kaptan", 0)
+        print(f"[approval] node={node.node_key} awaiting_approval", flush=True)
+        return
+
     node.exec_id = _exec_id(task.id, node.node_key, node.retry_count)
     inputs = {"node": node.node_key, "attempt": node.retry_count, "exec_id": node.exec_id,
               "refine_depth": node.refine_depth, **(task.inputs or {})}
-    # güncel snapshot + bağımlılık geçmişi (collaboration context)
     snap_row = await s.get(TaskContextSnapshot, task.id)
     snapshot = snap_row.snapshot if snap_row else {}
     all_nodes = (await s.execute(select(TaskNode).where(TaskNode.task_id == task.id))).scalars().all()
@@ -313,11 +342,13 @@ async def _dispatch_node(s, js, task: Task, node: TaskNode) -> None:
         from_agent="kaptan", to_agent=node.agent, trace_id=UUID(task.id), skill=node.skill,
         timestamp=int(time.time()),
         payload=TaskPayload(goal=task.goal, inputs=inputs, node_role=node.node_role,
-                            snapshot=snapshot, node_history=node_history),
+                            snapshot=snapshot, node_history=node_history,
+                            node_kind=node.node_kind, tool=node.tool, tool_args=node.tool_args or {}),
     )
     node.msg_id = str(msg.message_id)
     node.status = "running"
-    await js.publish(Subject.TASK_CREATED.value, msg.model_dump_json(by_alias=True).encode())
+    subject = Subject.TOOL_REQUEST.value if node.node_kind == "tool" else Subject.TASK_CREATED.value
+    await js.publish(subject, msg.model_dump_json(by_alias=True).encode())
 
 
 async def _on_critic_done(s, js, task: Task, critic: TaskNode, payload: dict) -> None:
@@ -525,11 +556,16 @@ async def on_result(js, env: dict, subject: str) -> None:
                     print(f"[dedup] ignored exec_id={fp}", flush=True)
                     return
             task = await s.get(Task, node.task_id)
-            if subject == Subject.TASK_COMPLETED.value:
+            if env.get("type") == "result":   # success (task/tool sonucu)
                 node.status = "done"
                 payload = env.get("payload", {})
                 node.result = payload
-                # v0.7 — ajanın ürettiği context event'lerini append et (single-writer reducer sonra)
+                # v0.9 — tool sonucu context'e artifact olarak
+                if node.node_kind == "tool":
+                    await _append_event(s, node.task_id, "artifact.created", node.agent, node.node_key,
+                                        {"kind": "tool_result", "tool": node.tool, "content": payload.get("result", {})},
+                                        exec_id=node.exec_id)
+                # v0.7 — ajanın ürettiği context event'leri
                 for ev in payload.get("events", []) or []:
                     await _append_event(s, node.task_id, ev.get("type", "artifact.created"),
                                         ev.get("agent") or node.agent, node.node_key,
@@ -537,8 +573,9 @@ async def on_result(js, env: dict, subject: str) -> None:
                 await s.flush()
                 await context_reducer.apply(s, node.task_id)
                 await _emit_event(js, "context.updated", node.task_id, node.agent or "?", 0)
-                # v0.7.1 — refine-enabled critic tamamlandıysa refinement controller
-                if node.node_role == "critic" and node.refine_group and int((task.inputs or {}).get("max_refinement_depth", 0)) > 0:
+                # v0.7.1 — refine-enabled reasoning critic
+                if (node.node_kind == "reasoning" and node.node_role == "critic" and node.refine_group
+                        and int((task.inputs or {}).get("max_refinement_depth", 0)) > 0):
                     await _on_critic_done(s, js, task, node, payload)
             else:
                 code = env.get("error_code") or "UNKNOWN"
@@ -578,6 +615,29 @@ async def retry_scheduler(js) -> None:
         except Exception as e:  # noqa: BLE001
             print(f"[scheduler] hata: {e}", flush=True)
         await asyncio.sleep(1.0)
+
+
+async def approve_node(js, task_id: str, node_key: str, actor: str = "anonymous") -> dict:
+    """Approval node'u (node-seviye HITL) onaylar → done → downstream serbest."""
+    async with _lock:
+        async with SessionLocal() as s:
+            node = (await s.execute(
+                select(TaskNode).where(TaskNode.task_id == task_id, TaskNode.node_key == node_key)
+            )).scalars().first()
+            if node is None:
+                return {"error": "not_found"}
+            if node.node_kind != "approval" or node.status != "awaiting_approval":
+                return {"error": "invalid_state", "status": node.status}
+            node.status = "done"
+            node.approved_by = actor
+            node.approved_at = _now()
+            node.result = {"approved": True, "by": actor}
+            await s.flush()
+            await _dispatch_ready(s, js, task_id)
+            await _finalize(s, task_id)
+            await _emit_event(js, "node.approved", task_id, actor, 0)
+            await s.commit()
+            return {"task_id": task_id, "node": node_key, "status": "approved"}
 
 
 async def manual_retry(js, task_id: str, node_key: str, actor: str = "anonymous") -> dict:

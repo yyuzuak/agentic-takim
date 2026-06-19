@@ -22,9 +22,23 @@ MAX_RETRIES = 2  # ilk denemeye ek olarak en fazla 2 retry
 
 class _PlanNode(BaseModel):
     key: str
-    skill: str
+    skill: str | None = None
     depends_on: list[str] = []
     role: str = "producer"  # producer | critic | synthesizer
+    kind: str = "reasoning"  # reasoning | tool | approval
+    tool: str | None = None
+    args: dict = {}
+
+
+def _tool_catalog() -> set[str]:
+    import json as _json
+    import os as _os
+    try:
+        with open(_os.environ.get("TOOLS_CONFIG", "/app/config/tools.json"), encoding="utf-8") as f:
+            raw = _json.load(f)
+        return set((raw.get("tools") or {}).keys())
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 class _Plan(BaseModel):
@@ -99,13 +113,22 @@ def validate_plan_nodes(nodes: list[dict] | list) -> tuple[list[dict] | None, st
         return None, "empty"
     if len(parsed) > MAX_NODES:
         return None, "schema_invalid"
-    if any(n.skill not in _allowed_skills() for n in parsed):
-        return None, "schema_invalid"  # halüsine/uydurma skill
+    allowed = _allowed_skills()
+    tools = _tool_catalog()
+    for n in parsed:
+        if n.kind == "tool":
+            if n.tool not in tools:  # uydurma tool yasak
+                return None, "schema_invalid"
+        elif n.kind == "approval":
+            pass  # skill/tool gerekmez
+        elif n.skill not in allowed:  # reasoning
+            return None, "schema_invalid"
     if len({n.key for n in parsed}) != len(parsed):
         return None, "schema_invalid"
     if not _is_acyclic(parsed):
         return None, "schema_invalid"
-    return [{"key": n.key, "skill": n.skill, "depends_on": n.depends_on, "role": n.role} for n in parsed], None
+    return [{"key": n.key, "skill": n.skill, "depends_on": n.depends_on, "role": n.role,
+             "kind": n.kind, "tool": n.tool, "args": n.args} for n in parsed], None
 
 
 def _validate(raw: str) -> tuple[list[dict] | None, str | None]:

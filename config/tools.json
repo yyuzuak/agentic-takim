@@ -1,0 +1,40 @@
+{
+  "$comment": "Tool kataloğu (v0.9). simulated=true → gerçek dış çağrı yok (sandbox stub). permission allowlist: hangi rol/ajan çağırabilir. Gerçek adaptörler v0.9.1.",
+  "tools": {
+    "check_stock": {
+      "args_schema": {"sku": "string", "qty": "int"},
+      "permission": "read",
+      "simulated": true,
+      "timeout_ms": 10000
+    },
+    "create_quote": {
+      "args_schema": {"customer": "string", "items": "list"},
+      "permission": "write",
+      "simulated": true,
+      "timeout_ms": 15000
+    },
+    "generate_pdf": {
+      "args_schema": {"quote_id": "string"},
+      "permission": "write",
+      "simulated": true,
+      "timeout_ms": 15000
+    },
+    "send_whatsapp": {
+      "args_schema": {"to": "string", "doc": "string"},
+      "permission": "external_send",
+      "simulated": true,
+      "timeout_ms": 20000,
+      "requires_approval": true
+    },
+    "drop_table": {
+      "args_schema": {"table": "string"},
+      "permission": "danger",
+      "simulated": true,
+      "timeout_ms": 5000
+    }
+  },
+  "permissions": {
+    "$comment": "Bir tool'u çağırabilmek için gereken izinler; agent başına allowlist v0.9.1'de genişler.",
+    "allow": ["read", "write", "external_send"]
+  }
+}

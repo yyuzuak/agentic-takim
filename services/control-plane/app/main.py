@@ -20,6 +20,7 @@ from .models import (
     TaskContextEvent,
     TaskContextSnapshot,
     TaskNode,
+    ToolInvocation,
 )
 
 
@@ -185,7 +186,8 @@ async def get_task(task_id: str, session: AsyncSession = Depends(get_session)) -
         "result": task.result,
         "error": task.error,
         "nodes": [
-            {"key": n.node_key, "agent": n.agent, "skill": n.skill, "role": n.node_role, "depends_on": n.depends_on,
+            {"key": n.node_key, "agent": n.agent, "skill": n.skill, "role": n.node_role,
+             "kind": n.node_kind, "tool": n.tool, "depends_on": n.depends_on,
              "status": n.status, "result": n.result, "retry_count": n.retry_count,
              "max_retries": n.max_retries, "retry_policy": n.retry_policy, "error_code": n.error_code,
              "retry_at": n.retry_at.isoformat() if n.retry_at else None}
@@ -207,6 +209,13 @@ async def get_dlq(task_id: str, session: AsyncSession = Depends(get_session)) ->
 @app.post("/tasks/{task_id}/nodes/{node_key}/retry")
 async def retry_node(task_id: str, node_key: str, body: ActorIn, request: Request) -> dict:
     result = await orchestrator.manual_retry(request.app.state.js, task_id, node_key, body.actor)
+    _raise_for(result)
+    return result
+
+
+@app.post("/tasks/{task_id}/nodes/{node_key}/approve-node")
+async def approve_node(task_id: str, node_key: str, body: ActorIn, request: Request) -> dict:
+    result = await orchestrator.approve_node(request.app.state.js, task_id, node_key, body.actor)
     _raise_for(result)
     return result
 
@@ -265,6 +274,18 @@ async def memory_recall(goal: str, type: str = "build", session: AsyncSession = 
     res = await memory.recall(session, goal, type)
     await session.commit()
     return res
+
+
+@app.get("/tasks/{task_id}/tools")
+async def get_tool_invocations(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(
+        select(ToolInvocation).where(ToolInvocation.task_id == task_id).order_by(ToolInvocation.created_at)
+    )).scalars().all()
+    return {"count": len(rows), "invocations": [
+        {"node_key": r.node_key, "tool": r.tool, "status": r.status, "attempt": r.attempt,
+         "error_code": r.error_code, "result": r.result}
+        for r in rows
+    ]}
 
 
 @app.get("/metrics")

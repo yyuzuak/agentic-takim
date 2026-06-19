@@ -249,7 +249,10 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
       enrichment (LLM few-shot / rule template bias); guardrail'ler: MIN_SCORE, diversity,
       confidence+drift, copy-risk telemetry, idempotent two-phase store, retrieval feedback
 - [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
-- [ ] v0.9 Tool Execution Framework + v0.9.1 Tool Safety Layer
+- [x] **v0.9 Tool Execution Framework** — ayrı Tool Runtime katmanı (ACP.TOOL.REQUEST/RESULT);
+      node kinds reasoning|tool|approval; idempotent (at-most-once) + permission + audit (tool_invocations);
+      simulated tools (check_stock/create_quote/generate_pdf/send_whatsapp); v0.6 retry/DLQ yeniden kullanımı
+- [ ] v0.9.1 Tool Safety Layer (sandbox/rate-limit/secret/rollback + gerçek adaptörler)
 - [ ] v1.0 Agentic OS MVP (Web: sohbet + canlı trace; Gözcü kalite skorlama)
 
 ---

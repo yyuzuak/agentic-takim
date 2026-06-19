@@ -126,6 +126,21 @@ services:
       nats:
         condition: service_healthy
 
+  tool-runtime:
+    build:
+      context: ../..
+      dockerfile: services/tool-runtime/Dockerfile
+    profiles: ["core"]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NATS_URL: ${NATS_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
   web:
     build:
       context: ../..

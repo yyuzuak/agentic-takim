@@ -19,6 +19,10 @@ class TaskPayload(BaseModel):
     node_role: str = "producer"          # producer | critic | synthesizer
     snapshot: dict = Field(default_factory=dict)      # dispatch anındaki context snapshot
     node_history: list[dict] = Field(default_factory=list)  # [{node_key, agent}] bağımlılıklar
+    # v0.9 — tool execution (node_kind=tool)
+    node_kind: str = "reasoning"         # reasoning | tool | approval
+    tool: str | None = None
+    tool_args: dict = Field(default_factory=dict)
 
 
 class ResultPayload(BaseModel):

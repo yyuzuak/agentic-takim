@@ -33,15 +33,23 @@ def _make_handler(js):
     return _handle_result
 
 
-async def result_consumer(js) -> None:
-    """Stream'ler init-nats ile sonradan oluşabilir; oluşana kadar retry."""
-    handler = _make_handler(js)
-    for _ in range(60):
+async def _subscribe_one(js, subject: str, durable: str, handler) -> None:
+    """Tek subject'i bağımsız abone et (stream oluşana kadar retry). Diğerlerini etkilemez."""
+    for _ in range(120):
         try:
-            await js.subscribe(Subject.TASK_COMPLETED.value, durable="cp-completed", cb=handler, manual_ack=True)
-            await js.subscribe(Subject.TASK_FAILED.value, durable="cp-failed", cb=handler, manual_ack=True)
-            print("✓ control-plane sonuç tüketicisi aktif (COMPLETED/FAILED).")
+            await js.subscribe(subject, durable=durable, cb=handler, manual_ack=True)
+            print(f"✓ sonuç tüketicisi aktif: {subject}")
             return
         except Exception:
             await asyncio.sleep(2)
-    print("! control-plane sonuç tüketicisi başlatılamadı (stream yok?).")
+    print(f"! sonuç tüketicisi başlatılamadı: {subject}")
+
+
+async def result_consumer(js) -> None:
+    """Her subject bağımsız abone (biri eksikse diğerleri etkilenmez)."""
+    handler = _make_handler(js)
+    await asyncio.gather(
+        _subscribe_one(js, Subject.TASK_COMPLETED.value, "cp-completed", handler),
+        _subscribe_one(js, Subject.TASK_FAILED.value, "cp-failed", handler),
+        _subscribe_one(js, Subject.TOOL_RESULT.value, "cp-tool-result", handler),
+    )
