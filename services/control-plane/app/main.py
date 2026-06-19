@@ -234,6 +234,15 @@ async def get_events(task_id: str, session: AsyncSession = Depends(get_session))
     ]}
 
 
+@app.get("/tasks/{task_id}/refinements")
+async def get_refinements(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(
+        select(TaskContextEvent).where(TaskContextEvent.task_id == task_id, TaskContextEvent.type == "refinement")
+        .order_by(TaskContextEvent.seq)
+    )).scalars().all()
+    return {"count": len(rows), "refinements": [r.payload for r in rows]}
+
+
 @app.get("/metrics")
 async def metrics() -> dict:
     """Retry/DLQ orkestrasyon sayaçları (hybrid event+DB debugging)."""

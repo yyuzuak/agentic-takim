@@ -176,3 +176,6 @@ class TaskNode(Base):
     retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     exec_id: Mapped[str | None] = mapped_column(String, nullable=True)
     retry_history: Mapped[list | None] = mapped_column(JSON, default=list)
+    # v0.7.1 — refinement loop (forward expansion)
+    refine_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    refine_group: Mapped[str | None] = mapped_column(String, nullable=True, index=True)

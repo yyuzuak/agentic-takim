@@ -33,16 +33,24 @@ def _collaborate(task) -> list[dict]:
     p = task.payload
     role, agent, goal = p.node_role, task.to_agent, p.goal
     snapshot, history = p.snapshot or {}, p.node_history or []
+    inputs = p.inputs or {}
+    depth = int(inputs.get("refine_depth", 0))
 
     if role == "critic":
+        # score: scores listesi varsa onu kullan, yoksa base + step*depth (deterministik test)
+        scores = inputs.get("scores")
+        if isinstance(scores, list) and scores:
+            score = float(scores[depth] if depth < len(scores) else scores[-1])
+        else:
+            score = min(float(inputs.get("base_score", 0.7)) + float(inputs.get("score_step", 0.1)) * depth, 1.0)
         events = []
         for dep in history:
             content = _artifact_content(snapshot, dep["agent"], dep["node_key"])
             if content is None:
                 continue
             events.append({"type": "critique", "agent": agent, "payload": {
-                "target_node": dep["node_key"], "score": 0.8,
-                "issues": [f"{dep['node_key']} taslağı gözden geçirildi"],
+                "target_node": dep["node_key"], "score": round(score, 4),
+                "issues": [f"{dep['node_key']} taslağı gözden geçirildi (iter {depth})"],
                 "suggestions": [f"{agent}: netlik ve kapsam iyileştirilebilir"],
             }})
         return events
@@ -57,9 +65,12 @@ def _collaborate(task) -> list[dict]:
             {"type": "decision.made", "agent": agent, "payload": {"decision": f"{agent} nihai çıktıyı sentezledi"}},
         ]
 
-    # producer (varsayılan)
+    # producer (varsayılan) — revizyonlarda içerik depth ile değişir (fingerprint değişir);
+    # stable_output=true ise sabit (convergence/fingerprint testi).
+    stable = bool(inputs.get("stable_output", False))
+    text = f"{task.skill} draft for: {goal}" + ("" if stable else f" rev{depth}")
     return [{"type": "artifact.created", "agent": agent, "payload": {
-        "kind": "draft", "content": {"text": f"{task.skill} draft for: {goal}"}}}]
+        "kind": "draft", "content": {"text": text}}}]
 
 NATS_URL = os.environ.get("NATS_URL", "nats://nats:4222")
 DB_DSN = os.environ.get("DATABASE_URL", "postgresql://agentic:agentic_dev_pw@postgres:5432/agentic_os")

@@ -53,6 +53,13 @@ RETRY_BASE_S = 1.0
 RETRY_CAP_S = 8.0
 TERMINAL = {"done", "dead_letter"}
 
+# v0.7.1 refinement
+REFINE_TERMINAL = {"accept", "max_depth", "converged", "node_cap"}
+
+
+def _fp(goal: str, content) -> str:
+    return hashlib.sha256(f"{goal}|{json.dumps(content, sort_keys=True, ensure_ascii=False)}".encode()).hexdigest()[:16]
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -143,11 +150,15 @@ async def _emit_event(js, event: str, task_id: str, actor: str, version: int) ->
         pass
 
 
-def _build_nodes(s, task_id: str, plan: list[dict], retry_policy: str, max_retries: int) -> None:
+def _build_nodes(s, task_id: str, plan: list[dict], retry_policy: str, max_retries: int,
+                 refine_enabled: bool = False) -> None:
     for n in plan:
+        role = n.get("role", "producer")
+        # refine açıksa critic node'ları bir refine_group başlatır (chain id = node_key)
+        group = n["key"] if (refine_enabled and role == "critic") else None
         s.add(TaskNode(id=str(uuid4()), task_id=task_id, node_key=n["key"], agent=n["agent"],
                        skill=n["skill"], depends_on=n["depends_on"], status="pending",
-                       node_role=n.get("role", "producer"),
+                       node_role=role, refine_group=group, refine_depth=0,
                        retry_policy=retry_policy, max_retries=max_retries, retry_history=[]))
 
 
@@ -173,7 +184,8 @@ async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
                        status=status, plan=plan, require_approval=require_approval,
                        current_plan_version=1, last_modified_by=actor, inputs=inputs or {}))
             s.add(TaskPlanVersion(id=str(uuid4()), task_id=task_id, version=1, plan_json=plan, created_by=actor))
-            _build_nodes(s, task_id, plan, rp, mr)
+            refine_enabled = int((inputs or {}).get("max_refinement_depth", 0)) > 0
+            _build_nodes(s, task_id, plan, rp, mr, refine_enabled)
             await s.flush()
             # v0.7 — context init event + snapshot
             await _append_event(s, task_id, "task.init", "kaptan", None, {"goal": goal})
@@ -252,7 +264,8 @@ async def edit(js, task_id: str, actor: str, nodes: list[dict]) -> dict:
 async def _dispatch_node(s, js, task: Task, node: TaskNode) -> None:
     """Tek düğümü yayınlar: yeni exec_id + msg_id, status=running; payload'a role+snapshot+node_history."""
     node.exec_id = _exec_id(task.id, node.node_key, node.retry_count)
-    inputs = {"node": node.node_key, "attempt": node.retry_count, "exec_id": node.exec_id, **(task.inputs or {})}
+    inputs = {"node": node.node_key, "attempt": node.retry_count, "exec_id": node.exec_id,
+              "refine_depth": node.refine_depth, **(task.inputs or {})}
     # güncel snapshot + bağımlılık geçmişi (collaboration context)
     snap_row = await s.get(TaskContextSnapshot, task.id)
     snapshot = snap_row.snapshot if snap_row else {}
@@ -270,14 +283,112 @@ async def _dispatch_node(s, js, task: Task, node: TaskNode) -> None:
     await js.publish(Subject.TASK_CREATED.value, msg.model_dump_json(by_alias=True).encode())
 
 
+async def _on_critic_done(s, js, task: Task, critic: TaskNode, payload: dict) -> None:
+    """Refinement controller — forward expansion (literal cycle YOK)."""
+    inputs = task.inputs or {}
+    threshold = float(inputs.get("accept_threshold", 0.9))
+    min_delta = float(inputs.get("min_improvement_delta", 0.05))
+    max_depth = int(inputs.get("max_refinement_depth", 0))
+    max_nodes = int(inputs.get("max_dynamic_nodes", 20))
+    group, depth = critic.refine_group, critic.refine_depth
+
+    # critic'in critique event'inden score
+    score = 0.0
+    for ev in payload.get("events", []) or []:
+        if ev.get("type") == "critique":
+            score = float(ev.get("payload", {}).get("score", 0.0))
+            break
+
+    # producer fingerprint (orchestrator-side, agent'a güvenmeden)
+    nodes = (await s.execute(select(TaskNode).where(TaskNode.task_id == task.id))).scalars().all()
+    by_key = {n.node_key: n for n in nodes}
+    prod = next((by_key[d] for d in critic.depends_on if d in by_key and by_key[d].node_role != "critic"), None)
+    snap = await s.get(TaskContextSnapshot, task.id)
+    content = None
+    if prod and snap:
+        content = (snap.snapshot.get("agents", {}).get(prod.agent, {}).get("artifacts", {}).get(prod.node_key) or {}).get("content")
+    producer_fp = _fp(task.goal, content)
+
+    hist = await _refinement_history(s, task.id, group)
+    prev_score = hist[-1]["score"] if hist else None
+    seen_fps = {h.get("fingerprint") for h in hist}
+    delta = (score - prev_score) if prev_score is not None else None
+    node_count = len(nodes)
+
+    if score >= threshold:
+        decision = "accept"
+    elif prev_score is not None and delta is not None and delta < min_delta:
+        decision = "converged"   # stagnation
+    elif producer_fp in seen_fps:
+        decision = "converged"   # fingerprint repeat
+    elif depth + 1 > max_depth:
+        decision = "max_depth"
+    elif node_count >= max_nodes:
+        decision = "node_cap"
+    else:
+        decision = "refine"
+
+    await _append_event(s, task.id, "refinement", critic.agent, critic.node_key, {
+        "group": group, "iteration": depth, "score": score, "previous_score": prev_score,
+        "delta": delta, "fingerprint": producer_fp, "decision": decision,
+    })
+    print(f"[refine] group={group} iter={depth} score={score} prev={prev_score} delta={delta} decision={decision}", flush=True)
+
+    if decision == "refine":
+        nd = depth + 1
+        pkey, ckey = f"{group}#r{nd}p", f"{group}#r{nd}c"
+        skill = prod.skill if prod else critic.skill
+        s.add(TaskNode(id=str(uuid4()), task_id=task.id, node_key=pkey, agent=route(skill), skill=skill,
+                       depends_on=[critic.node_key], status="pending", node_role="producer",
+                       refine_group=None, refine_depth=nd, retry_policy=critic.retry_policy,
+                       max_retries=critic.max_retries, retry_history=[]))
+        s.add(TaskNode(id=str(uuid4()), task_id=task.id, node_key=ckey, agent=critic.agent, skill=critic.skill,
+                       depends_on=[pkey], status="pending", node_role="critic",
+                       refine_group=group, refine_depth=nd, retry_policy=critic.retry_policy,
+                       max_retries=critic.max_retries, retry_history=[]))
+        # critic'e bağlı pending downstream'leri yeni critic'e re-point
+        for n in nodes:
+            if n.status == "pending" and critic.node_key in (n.depends_on or []):
+                n.depends_on = [ckey if d == critic.node_key else d for d in n.depends_on]
+    await s.flush()
+    await context_reducer.apply(s, task.id)
+
+
+async def _refinement_history(s, task_id: str, group: str) -> list[dict]:
+    rows = (await s.execute(
+        select(TaskContextEvent).where(TaskContextEvent.task_id == task_id, TaskContextEvent.type == "refinement")
+        .order_by(TaskContextEvent.seq)
+    )).scalars().all()
+    return [r.payload for r in rows if r.payload.get("group") == group]
+
+
+async def _group_terminal(s, task_id: str, group: str) -> bool:
+    hist = await _refinement_history(s, task_id, group)
+    return any(h.get("decision") in REFINE_TERMINAL for h in hist)
+
+
 async def _dispatch_ready(s, js, task_id: str) -> None:
-    """Invariant: bir node dispatch edilebilir ⇔ tüm bağımlılıkları 'done'.
-    (running|scheduled|dead_letter bağımlılık → done değil → child beklemede kalır.)"""
+    """Invariant: bir node dispatch edilebilir ⇔ tüm bağımlılıkları 'done' VE
+    refine-critic bağımlılıklarının refine_group'u terminal (synthesizer gating)."""
     task = await s.get(Task, task_id)
     nodes = (await s.execute(select(TaskNode).where(TaskNode.task_id == task_id))).scalars().all()
+    by_key = {n.node_key: n for n in nodes}
     done = {n.node_key for n in nodes if n.status == "done"}
     for n in nodes:
-        if n.status == "pending" and set(n.depends_on) <= done:
+        if n.status != "pending" or not (set(n.depends_on) <= done):
+            continue
+        # synthesizer gating: non-terminal refine zincirine bağlı DIŞ node'lar bekler.
+        # Zincir-içi node'lar (rev producer/critic) muaf — yoksa zincir ilerleyemez.
+        blocked = False
+        for dk in n.depends_on:
+            dep = by_key.get(dk)
+            if dep and dep.node_role == "critic" and dep.refine_group:
+                g = dep.refine_group
+                chain_internal = (n.refine_group == g) or n.node_key.startswith(f"{g}#")
+                if not chain_internal and not await _group_terminal(s, task_id, g):
+                    blocked = True
+                    break
+        if not blocked:
             await _dispatch_node(s, js, task, n)
 
 
@@ -378,6 +489,9 @@ async def on_result(js, env: dict, subject: str) -> None:
                 await s.flush()
                 await context_reducer.apply(s, node.task_id)
                 await _emit_event(js, "context.updated", node.task_id, node.agent or "?", 0)
+                # v0.7.1 — refine-enabled critic tamamlandıysa refinement controller
+                if node.node_role == "critic" and node.refine_group and int((task.inputs or {}).get("max_refinement_depth", 0)) > 0:
+                    await _on_critic_done(s, js, task, node, payload)
             else:
                 code = env.get("error_code") or "UNKNOWN"
                 await _on_node_failed(s, js, task, node, code, env.get("message") or "hata")

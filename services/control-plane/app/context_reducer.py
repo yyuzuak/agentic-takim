@@ -15,7 +15,7 @@ from .models import TaskArtifact, TaskContextEvent, TaskContextSnapshot, TaskCri
 
 def reduce(events: list[dict]) -> dict:
     """Saf fonksiyon: aynı event listesi → aynı snapshot (replay garanti)."""
-    snap: dict = {"goal": None, "shared": {"decisions": [], "artifacts": {}}, "agents": {}}
+    snap: dict = {"goal": None, "shared": {"decisions": [], "artifacts": {}}, "agents": {}, "refinements": {}}
     for e in events:
         et, agent, node_key, payload = e["type"], e.get("agent"), e.get("node_key"), e.get("payload", {})
         if et == "task.init":
@@ -32,6 +32,13 @@ def reduce(events: list[dict]) -> dict:
             })
         elif et == "decision.made":
             snap["shared"]["decisions"].append({"agent": agent, "node_key": node_key, "decision": payload.get("decision")})
+        elif et == "refinement":
+            grp = payload.get("group", "?")
+            snap["refinements"].setdefault(grp, []).append({
+                "iteration": payload.get("iteration"), "score": payload.get("score"),
+                "previous_score": payload.get("previous_score"), "delta": payload.get("delta"),
+                "decision": payload.get("decision"), "fingerprint": payload.get("fingerprint"),
+            })
     return snap
 
 
