@@ -8,13 +8,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import bus, orchestrator
+from . import bus, memory, orchestrator
 from .config import settings
 from .db import get_session
 from .models import (
     Agent,
     AgentSkill,
     DeadLetterNode,
+    MemoryEntry,
     Task,
     TaskContextEvent,
     TaskContextSnapshot,
@@ -32,6 +33,8 @@ async def lifespan(app: FastAPI):
         app.state.js = nc.jetstream()
         app.state._consumer = asyncio.create_task(bus.result_consumer(app.state.js))
         app.state._scheduler = asyncio.create_task(orchestrator.retry_scheduler(app.state.js))
+        if settings.memory_available:
+            await memory.ensure_collection()
     except Exception as e:  # noqa: BLE001 — NATS yoksa /health yine ayakta kalmalı
         print(f"! NATS bağlantısı kurulamadı: {e}")
     yield
@@ -241,6 +244,27 @@ async def get_refinements(task_id: str, session: AsyncSession = Depends(get_sess
         .order_by(TaskContextEvent.seq)
     )).scalars().all()
     return {"count": len(rows), "refinements": [r.payload for r in rows]}
+
+
+@app.get("/memory")
+async def list_memory(session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(select(MemoryEntry).order_by(MemoryEntry.created_at.desc()))).scalars().all()
+    return {"count": len(rows), "entries": [
+        {"task_id": r.task_id, "goal": r.goal, "workflow_type": r.workflow_type, "outcome": r.outcome,
+         "status": r.status, "provider": r.provider, "retrieval_count": r.retrieval_count,
+         "reuse_success_count": r.reuse_success_count, "refinement_summary": r.refinement_summary,
+         "parent_memory_ids": r.parent_memory_ids}
+        for r in rows
+    ]}
+
+
+@app.get("/memory/recall")
+async def memory_recall(goal: str, type: str = "build", session: AsyncSession = Depends(get_session)) -> dict:
+    if not settings.memory_available:
+        return {"hits": [], "avg_score": 0.0, "confidence": "low", "memory_available": False}
+    res = await memory.recall(session, goal, type)
+    await session.commit()
+    return res
 
 
 @app.get("/metrics")

@@ -245,8 +245,11 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
 - [x] **v0.7 Multi-Agent Collaboration** — event-sourced context (append-only events + deterministic
       reducer → snapshot, single-writer), producer/critic/synthesizer rolleri, artifact+critique
       projeksiyonları; critic producer'ı değiştirmez (provenance korunur)
-- [ ] v0.8 Memory-Aware Planning (Qdrant RAG recall)
-- [ ] v0.9 Tool Execution Framework
+- [x] **v0.8 Memory-Aware Planning** — geçmiş başarılı görevlerden recall (Qdrant), planner
+      enrichment (LLM few-shot / rule template bias); guardrail'ler: MIN_SCORE, diversity,
+      confidence+drift, copy-risk telemetry, idempotent two-phase store, retrieval feedback
+- [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
+- [ ] v0.9 Tool Execution Framework + v0.9.1 Tool Safety Layer
 - [ ] v1.0 Agentic OS MVP (Web: sohbet + canlı trace; Gözcü kalite skorlama)
 
 ---

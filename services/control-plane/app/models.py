@@ -136,6 +136,31 @@ class TaskArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MemoryEntry(Base):
+    """Memory-aware planning kaydı — Postgres=source of truth, Qdrant=retrieval index.
+    Yalnız başarılı (done) görevler girer. UNIQUE(task_id) → idempotent store."""
+    __tablename__ = "memory_entries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str] = mapped_column(String, nullable=False, default="done")
+    plan: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, default=list)
+    memory_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    workflow_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    planner_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    success_score: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    refinement_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    retrieval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reuse_success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")  # pending|indexed
+    provider: Mapped[str | None] = mapped_column(String, nullable=True)  # local|openai
+    parent_memory_ids: Mapped[list | None] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TaskCritique(Base):
     """Critique projeksiyonu — critic çıktısı (producer'ı DEĞİŞTİRMEZ)."""
     __tablename__ = "task_critiques"

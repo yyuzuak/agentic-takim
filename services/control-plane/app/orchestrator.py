@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from agentic_schemas.acp.v1 import TaskMessage, TaskPayload
 from agentic_schemas.events.v1 import Subject
 
-from . import context_reducer, planner
+from . import context_reducer, memory, planner
 from .config import settings
 from .db import SessionLocal
 from .models import (
@@ -36,6 +36,15 @@ from .models import (
     TaskPlanVersion,
 )
 from .routing import route
+
+
+def _same_dag(plan_a: list[dict], plan_b) -> bool:
+    """İki planın yapısal (skill + bağımlılık) eşitliği — copy-risk telemetrisi."""
+    if not plan_a or not plan_b:
+        return False
+    def sig(p):
+        return sorted((n.get("skill"), tuple(sorted(n.get("depends_on", [])))) for n in p)
+    return sig(plan_a) == sig(plan_b)
 
 _lock = asyncio.Lock()
 
@@ -119,23 +128,46 @@ async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[li
     skill verildiyse tek düğüm (geriye uyumlu). Aksi halde LLM (varsa) → guardrail →
     geçerliyse llm; değilse kural tabanlı fallback (error nedeniyle).
     """
+    inferred = wtype or infer_type(goal)
+    # --- Memory recall (planner'dan ÖNCE; danışmanlık, DAG üretmez) ---
+    mem = {"hits": [], "ids": [], "confidence": "low", "avg": 0.0}
+    if settings.memory_available and not skill:
+        async with SessionLocal() as ms:
+            res = await memory.recall(ms, goal, inferred)
+            await ms.commit()
+        mem["hits"] = res["hits"]
+        mem["ids"] = [h["task_id"] for h in res["hits"]]
+        mem["confidence"] = res["confidence"]
+        mem["avg"] = res["avg_score"]
+
     if skill:
-        plan = [{"key": "t1", "skill": skill, "depends_on": []}]
-        source, error = "single", None
+        plan, source = [{"key": "t1", "skill": skill, "depends_on": []}], "single"
+        error = None
     else:
         nodes, error = (None, "disabled")
         if settings.llm_available:
-            nodes, error = await planner.llm_plan(goal)
+            nodes, error = await planner.llm_plan(goal, mem["hits"])  # LLM few-shot enrichment
         if nodes:
             plan, source = nodes, "llm"
         else:
-            plan, source = _rule_plan(goal, wtype), "rule"
-    # her düğüme agent (route) + role (varsayılan producer) ekle
+            # rule yolu: yalnız confidence=high ise memory intent/template'i etkiler
+            chosen = wtype
+            if not wtype and mem["confidence"] == "high" and mem["hits"]:
+                chosen = mem["hits"][0].get("workflow_type")
+                inferred = chosen or inferred
+            plan, source = _rule_plan(goal, chosen), "rule"
     for n in plan:
         n["agent"] = route(n["skill"])
         n.setdefault("role", "producer")
-    print(f'[planner] source={source} error={error} nodes={len(plan)} goal="{goal[:60]}"', flush=True)
-    return plan, source, error
+
+    # copy-risk telemetrisi (ölç, bloklama yok)
+    warning = "retrieval_copy_risk" if any(_same_dag(plan, h.get("plan")) for h in mem["hits"]) else None
+
+    print(f'[memory] goal="{goal[:40]}" hits={len(mem["hits"])} avg={mem["avg"]} confidence={mem["confidence"]}', flush=True)
+    print(f'[planner] source={source} error={error} nodes={len(plan)} warning={warning}', flush=True)
+    meta = {"hits": len(mem["hits"]), "ids": mem["ids"], "confidence": mem["confidence"],
+            "avg": mem["avg"], "warning": warning, "wf_type": inferred}
+    return plan, source, error, meta
 
 
 async def _emit_event(js, event: str, task_id: str, actor: str, version: int) -> None:
@@ -174,15 +206,18 @@ async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
                          inputs: dict | None = None, retry_policy: str | None = None,
                          max_retries: int | None = None) -> dict:
     task_id = str(uuid4())
-    plan, source, error = await decompose(goal, skill, wtype)
+    plan, source, error, meta = await decompose(goal, skill, wtype)
     status = "awaiting_approval" if require_approval else "running"
     rp = retry_policy or "exponential"
     mr = max_retries if max_retries is not None else 3
+    # memory metadata + planner kaynağını task.inputs'a göm (store/feedback için)
+    task_inputs = {**(inputs or {}), "_workflow_type": meta["wf_type"],
+                   "_planner_source": source, "_memory_ids": meta["ids"]}
     async with _lock:
         async with SessionLocal() as s:
             s.add(Task(id=task_id, trace_id=task_id, agent="kaptan", skill=skill, goal=goal,
                        status=status, plan=plan, require_approval=require_approval,
-                       current_plan_version=1, last_modified_by=actor, inputs=inputs or {}))
+                       current_plan_version=1, last_modified_by=actor, inputs=task_inputs))
             s.add(TaskPlanVersion(id=str(uuid4()), task_id=task_id, version=1, plan_json=plan, created_by=actor))
             refine_enabled = int((inputs or {}).get("max_refinement_depth", 0)) > 0
             _build_nodes(s, task_id, plan, rp, mr, refine_enabled)
@@ -196,7 +231,9 @@ async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
                 await _dispatch_ready(s, js, task_id)
             await s.commit()
     return {"task_id": task_id, "status": status, "planner": source, "planner_error": error,
-            "version": 1, "plan": plan}
+            "version": 1, "plan": plan, "memory_hits": meta["hits"], "memory_ids": meta["ids"],
+            "memory_confidence": meta["confidence"], "memory_avg_score": meta["avg"],
+            "planner_warning": meta["warning"]}
 
 
 async def approve(js, task_id: str, actor: str = "anonymous") -> dict:
@@ -448,8 +485,19 @@ async def _finalize(s, task_id: str) -> None:
         return
     statuses = {n.status for n in nodes}
     if statuses == {"done"}:
-        task.status = "done"
-        task.result = {n.node_key: (n.result or {}) for n in nodes}
+        if task.status != "done":  # transition (bir kez)
+            task.status = "done"
+            task.result = {n.node_key: (n.result or {}) for n in nodes}
+            # v0.8 — memory store + retrieval feedback (best-effort)
+            try:
+                snap = await s.get(TaskContextSnapshot, task_id)
+                snapshot = snap.snapshot if snap else {}
+                mids = (task.inputs or {}).get("_memory_ids", []) or []
+                await memory.store(s, task, snapshot, parent_memory_ids=mids)
+                if mids and (task.inputs or {}).get("_planner_source") == "llm":
+                    await memory.mark_reuse_success(s, mids)
+            except Exception as e:  # noqa: BLE001
+                print(f"[memory] finalize store hata: {e}", flush=True)
     elif "dead_letter" in statuses and not ({"pending", "running", "scheduled"} & statuses):
         task.status = "failed"
         task.error = "bir veya daha fazla düğüm dead_letter"

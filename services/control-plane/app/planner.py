@@ -36,7 +36,17 @@ def _allowed_skills() -> set[str]:
     return {s for a in reg.agents.values() if a.type.value != "meta" for s in a.skills}
 
 
-def _build_messages(goal: str) -> list[dict]:
+def _memory_block(memory_hits: list[dict] | None) -> str:
+    if not memory_hits:
+        return ""
+    lines = ["\nRELEVANT PAST WORKFLOWS (retrieval_mode: advisory):"]
+    for i, h in enumerate(memory_hits, 1):
+        lines.append(f"{i}. goal: {h.get('goal')}\n   outcome: {h.get('outcome')}\n   summary: {h.get('summary')}")
+    lines.append("Use as reference only. Do not copy blindly.")
+    return "\n".join(lines)
+
+
+def _build_messages(goal: str, memory_hits: list[dict] | None = None) -> list[dict]:
     reg = get_registry()
     catalog = {aid: a.skills for aid, a in reg.agents.items() if a.type.value != "meta"}
     system = (
@@ -50,7 +60,8 @@ def _build_messages(goal: str) -> list[dict]:
         "- key'ler benzersiz (t1, t2, ...). depends_on yalnızca var olan key'lere işaret etsin. Döngü olmasın.\n"
         "- Bağımsız işler paralel olabilir (depends_on boş)."
     )
-    return [{"role": "system", "content": system}, {"role": "user", "content": goal}]
+    return [{"role": "system", "content": system + _memory_block(memory_hits)},
+            {"role": "user", "content": goal}]
 
 
 def _is_acyclic(nodes: list[_PlanNode]) -> bool:
@@ -105,11 +116,11 @@ def _validate(raw: str) -> tuple[list[dict] | None, str | None]:
     return validate_plan_nodes([n.model_dump() for n in plan.nodes])
 
 
-async def llm_plan(goal: str) -> tuple[list[dict] | None, str | None]:
+async def llm_plan(goal: str, memory_hits: list[dict] | None = None) -> tuple[list[dict] | None, str | None]:
     """(nodes, error_reason) döner. Başarıda (nodes, None); aksi halde (None, reason)."""
     payload = {
         "model": settings.llm_model,
-        "messages": _build_messages(goal),
+        "messages": _build_messages(goal, memory_hits),
         "temperature": 0.1,
         "response_format": {"type": "json_object"},
     }
