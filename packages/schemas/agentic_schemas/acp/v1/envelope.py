@@ -43,6 +43,7 @@ class ErrorCode(str, Enum):
     PERMISSION = "PERMISSION"
     BUDGET = "BUDGET"
     TIMEOUT = "TIMEOUT"
+    RATE_LIMIT = "RATE_LIMIT"   # retryable; retry_after payload'da (v0.9.1)
 
 
 class Context(BaseModel):

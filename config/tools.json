@@ -1,36 +1,51 @@
 {
-  "$comment": "Tool kataloğu (v0.9). simulated=true → gerçek dış çağrı yok (sandbox stub). permission allowlist: hangi rol/ajan çağırabilir. Gerçek adaptörler v0.9.1.",
+  "$comment": "Tool kataloğu (v0.9.1). simulated=true → sandbox stub. side_effect+compensation → geri alma stratejisi. rate_limit → sliding window Redis.",
   "tools": {
     "check_stock": {
       "args_schema": {"sku": "string", "qty": "int"},
       "permission": "read",
       "simulated": true,
-      "timeout_ms": 10000
+      "timeout_ms": 10000,
+      "side_effect": false,
+      "compensation": null,
+      "rate_limit": {"per_minute": 30, "per_task": 10}
     },
     "create_quote": {
       "args_schema": {"customer": "string", "items": "list"},
       "permission": "write",
       "simulated": true,
-      "timeout_ms": 15000
+      "timeout_ms": 15000,
+      "side_effect": true,
+      "compensation": "cancel_create_quote",
+      "rate_limit": {"per_minute": 10, "per_task": 3}
     },
     "generate_pdf": {
       "args_schema": {"quote_id": "string"},
       "permission": "write",
       "simulated": true,
-      "timeout_ms": 15000
+      "timeout_ms": 15000,
+      "side_effect": false,
+      "compensation": null,
+      "rate_limit": {"per_minute": 20, "per_task": 5}
     },
     "send_whatsapp": {
       "args_schema": {"to": "string", "doc": "string"},
       "permission": "external_send",
       "simulated": true,
       "timeout_ms": 20000,
-      "requires_approval": true
+      "requires_approval": true,
+      "side_effect": true,
+      "compensation": null,
+      "rate_limit": {"per_minute": 5, "per_task": 1}
     },
     "drop_table": {
       "args_schema": {"table": "string"},
       "permission": "danger",
       "simulated": true,
-      "timeout_ms": 5000
+      "timeout_ms": 5000,
+      "side_effect": true,
+      "compensation": null,
+      "rate_limit": {"per_minute": 2, "per_task": 1}
     }
   },
   "permissions": {

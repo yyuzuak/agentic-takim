@@ -1,11 +1,11 @@
 """tool-runtime DB — shared Postgres'teki tool_invocations tablosu (idempotency/audit).
-Control-plane ile aynı tablo; burada hafif bir model tanımı."""
+Control-plane ile aynı tablo; burada hafif model tanımı (v0.9.1: +dry_run/rate_limited/schema_errors + compensations)."""
 from __future__ import annotations
 
 import os
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Integer, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -32,5 +32,23 @@ class ToolInvocation(Base):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
+    rate_limited: Mapped[bool] = mapped_column(Boolean, default=False)
+    schema_errors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ToolCompensation(Base):
+    __tablename__ = "tool_compensations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String)
+    node_key: Mapped[str] = mapped_column(String)
+    tool: Mapped[str] = mapped_column(String)
+    exec_id: Mapped[str] = mapped_column(String, unique=True)
+    compensate_fn: Mapped[str | None] = mapped_column(String, nullable=True)
+    compensate_args: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

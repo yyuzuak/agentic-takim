@@ -151,8 +151,28 @@ class ToolInvocation(Base):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    rate_limited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    schema_errors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ToolCompensation(Base):
+    """Compensation kaydı — INV-1: yalnızca successful invocation sonrası.
+    compensate_fn=NULL → geri alma imkânsız (örn. send_whatsapp)."""
+    __tablename__ = "tool_compensations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String, index=True)
+    node_key: Mapped[str] = mapped_column(String, nullable=False)
+    tool: Mapped[str] = mapped_column(String, nullable=False)
+    exec_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    compensate_fn: Mapped[str | None] = mapped_column(String, nullable=True)
+    compensate_args: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MemoryEntry(Base):

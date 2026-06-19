@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from agentic_schemas.acp.v1 import TaskMessage, TaskPayload
 from agentic_schemas.events.v1 import Subject
 
-from . import context_reducer, memory, planner
+from . import context_reducer, memory, planner, schema_validator
 from .config import settings
 from .db import SessionLocal
 from .models import (
@@ -229,6 +229,12 @@ async def start_workflow(js, goal: str, skill: str | None, wtype: str | None,
                          max_retries: int | None = None) -> dict:
     task_id = str(uuid4())
     plan, source, error, meta = await decompose(goal, skill, wtype)
+
+    # Plan-time tool schema validation (v0.9.1, INV-3) — erken hata yakalama
+    plan_errors = schema_validator.validate_tool_plan(plan)
+    if plan_errors:
+        return {"error": "invalid_plan", "reason": f"tool schema errors: {'; '.join(plan_errors)}"}
+
     status = "awaiting_approval" if require_approval else "running"
     rp = retry_policy or "exponential"
     mr = max_retries if max_retries is not None else 3
@@ -295,6 +301,10 @@ async def edit(js, task_id: str, actor: str, nodes: list[dict]) -> dict:
     clean, err = planner.validate_plan_nodes(nodes)
     if clean is None:
         return {"error": "invalid_plan", "reason": err}
+    # Plan-time tool schema validation (v0.9.1)
+    tool_errs = schema_validator.validate_tool_plan(clean)
+    if tool_errs:
+        return {"error": "invalid_plan", "reason": f"tool schema errors: {'; '.join(tool_errs)}"}
     for n in clean:
         kind = n.get("kind", "reasoning")
         n["agent"] = "tool-runtime" if kind == "tool" else "kaptan" if kind == "approval" else route(n["skill"])
@@ -460,19 +470,23 @@ async def _dispatch_ready(s, js, task_id: str) -> None:
             await _dispatch_node(s, js, task, n)
 
 
-async def _schedule_retry(node: TaskNode, error_code: str, last_error: str) -> None:
-    node.retry_count += 1
+async def _schedule_retry(node: TaskNode, error_code: str, last_error: str, *, retry_after: int | None = None) -> None:
+    if error_code != "RATE_LIMIT":
+        node.retry_count += 1  # RATE_LIMIT retry_count arttırmaz (GR-2, INV-5)
     node.status = "scheduled"
     node.error_code = error_code
     node.last_error = last_error
     node.failed_at = _now()
-    delay = _retry_delay(node.retry_policy, node.retry_count)
+    if retry_after is not None:
+        delay = float(retry_after)
+    else:
+        delay = _retry_delay(node.retry_policy, node.retry_count)
     node.retry_at = _now() + timedelta(seconds=delay)
     hist = list(node.retry_history or [])
     hist.append({"attempt": node.retry_count, "error_code": error_code, "at": _now().isoformat(), "next_delay_s": round(delay, 2)})
     node.retry_history = hist
     _metrics["retries_scheduled_total"] += 1
-    print(f"[retry] node={node.node_key} attempt={node.retry_count} policy={node.retry_policy} next_delay={delay:.2f}s", flush=True)
+    print(f"[retry] node={node.node_key} attempt={node.retry_count} code={error_code} next_delay={delay:.2f}s", flush=True)
 
 
 async def _dead_letter(s, js, task: Task, node: TaskNode, error_code: str, last_error: str) -> None:
@@ -501,9 +515,17 @@ async def _dead_letter(s, js, task: Task, node: TaskNode, error_code: str, last_
     print(f"[dlq] node={node.node_key} error={error_code} exhausted={node.retry_count}>={node.max_retries}", flush=True)
 
 
-async def _on_node_failed(s, js, task: Task, node: TaskNode, error_code: str, last_error: str) -> None:
+async def _on_node_failed(s, js, task: Task, node: TaskNode, error_code: str, last_error: str,
+                           retry_after: int | None = None) -> None:
     non_retryable = error_code in NON_RETRYABLE
-    if node.retry_policy == "manual" or non_retryable or node.retry_count >= node.max_retries:
+    if error_code == "RATE_LIMIT":
+        # RATE_LIMIT: retry_count artmaz, retry_after kullanılır (GR-2, INV-5)
+        rate_limit_count = sum(1 for h in (node.retry_history or []) if h.get("error_code") == "RATE_LIMIT")
+        if rate_limit_count >= node.max_retries:
+            await _dead_letter(s, js, task, node, error_code, last_error)
+        else:
+            await _schedule_retry(node, error_code, last_error, retry_after=retry_after)
+    elif node.retry_policy == "manual" or non_retryable or node.retry_count >= node.max_retries:
         await _dead_letter(s, js, task, node, error_code, last_error)
     else:
         await _schedule_retry(node, error_code, last_error)
@@ -579,7 +601,12 @@ async def on_result(js, env: dict, subject: str) -> None:
                     await _on_critic_done(s, js, task, node, payload)
             else:
                 code = env.get("error_code") or "UNKNOWN"
-                await _on_node_failed(s, js, task, node, code, env.get("message") or "hata")
+                retry_after = None
+                if code == "RATE_LIMIT":
+                    payload = env.get("payload") or {}
+                    retry_after = payload.get("retry_after")
+                await _on_node_failed(s, js, task, node, code, env.get("message") or "hata",
+                                     retry_after=retry_after)
             await s.flush()
             await _dispatch_ready(s, js, node.task_id)
             await _finalize(s, node.task_id)

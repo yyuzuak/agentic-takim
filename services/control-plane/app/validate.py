@@ -79,7 +79,10 @@ def main() -> int:
         HandoffMessage(**common, payload={"reason": "teknik derinlik"})
         ErrorMessage(**common, error_code=ErrorCode.SCHEMA, message="eksik alan")
         AckMessage(**common)
+        # v0.9.1: RATE_LIMIT ErrorCode varlığını kontrol et
+        assert ErrorCode.RATE_LIMIT == "RATE_LIMIT", "RATE_LIMIT eksik"
         print("✓ ACP mesaj modelleri (Task/Result/Handoff/Error/Ack) örneklendi.")
+        print("✓ RATE_LIMIT ErrorCode mevcut.")
     except Exception as e:  # noqa: BLE001
         errors.append(f"ACP mesaj modelleri doğrulanamadı: {e}")
 

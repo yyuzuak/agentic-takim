@@ -20,6 +20,7 @@ from .models import (
     TaskContextEvent,
     TaskContextSnapshot,
     TaskNode,
+    ToolCompensation,
     ToolInvocation,
 )
 
@@ -123,10 +124,13 @@ async def create_task(body: TaskIn, request: Request) -> dict:
     js = request.app.state.js
     if js is None:
         raise HTTPException(503, "NATS bus hazır değil")
-    return await orchestrator.start_workflow(
+    result = await orchestrator.start_workflow(
         js, body.goal, body.skill, body.type, body.require_approval, body.actor,
         body.inputs, body.retry_policy, body.max_retries,
     )
+    if result.get("error") == "invalid_plan":
+        raise HTTPException(422, result.get("reason", "invalid tool args"))
+    return result
 
 
 @app.get("/tasks/{task_id}/plan")
@@ -283,7 +287,22 @@ async def get_tool_invocations(task_id: str, session: AsyncSession = Depends(get
     )).scalars().all()
     return {"count": len(rows), "invocations": [
         {"node_key": r.node_key, "tool": r.tool, "status": r.status, "attempt": r.attempt,
-         "error_code": r.error_code, "result": r.result}
+         "error_code": r.error_code, "dry_run": r.dry_run, "rate_limited": r.rate_limited,
+         "schema_errors": r.schema_errors, "result": r.result}
+        for r in rows
+    ]}
+
+
+@app.get("/tasks/{task_id}/compensations")
+async def get_compensations(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    rows = (await session.execute(
+        select(ToolCompensation).where(ToolCompensation.task_id == task_id).order_by(ToolCompensation.created_at)
+    )).scalars().all()
+    return {"count": len(rows), "compensations": [
+        {"id": r.id, "node_key": r.node_key, "tool": r.tool, "exec_id": r.exec_id,
+         "compensate_fn": r.compensate_fn, "compensate_args": r.compensate_args,
+         "status": r.status, "created_at": r.created_at.isoformat() if r.created_at else None,
+         "applied_at": r.applied_at.isoformat() if r.applied_at else None}
         for r in rows
     ]}
 
