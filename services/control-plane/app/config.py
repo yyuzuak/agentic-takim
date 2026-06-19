@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     observability_available: bool = False
 
     config_path: str = "/app/config/agents.json"
+    tool_runtime_url: str = "http://tool-runtime:8001"  # v1.1-b: HTTP API proxy
 
 
 settings = Settings()

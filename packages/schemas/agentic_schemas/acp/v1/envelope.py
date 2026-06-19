@@ -43,7 +43,9 @@ class ErrorCode(str, Enum):
     PERMISSION = "PERMISSION"
     BUDGET = "BUDGET"
     TIMEOUT = "TIMEOUT"
-    RATE_LIMIT = "RATE_LIMIT"   # retryable; retry_after payload'da (v0.9.1)
+    RATE_LIMIT = "RATE_LIMIT"     # retryable; retry_after payload'da (v0.9.1)
+    CIRCUIT_OPEN = "CIRCUIT_OPEN" # non-retryable; adapter devre dışı (v1.1-c)
+    UNKNOWN = "UNKNOWN"
 
 
 class Context(BaseModel):

@@ -13,4 +13,6 @@ RUN pip install .
 # Tool kataloğu
 COPY config /app/config
 
-CMD ["python", "-m", "toolrt.main"]
+# v1.1-b: HTTP API + NATS consumer birlikte (api.py lifespan → main.run())
+EXPOSE 8001
+CMD ["uvicorn", "toolrt.api:app", "--host", "0.0.0.0", "--port", "8001"]

@@ -1,10 +1,10 @@
 {
-  "$comment": "Tool kataloğu (v0.9.1). simulated=true → sandbox stub. side_effect+compensation → geri alma stratejisi. rate_limit → sliding window Redis.",
+  "$comment": "Tool kataloğu (v1.1-a). adapter_class → hangi adaptör kullanılacak. secrets eksikse SimulatedAdapter'a fallback.",
   "tools": {
     "check_stock": {
       "args_schema": {"sku": "string", "qty": "int"},
       "permission": "read",
-      "simulated": true,
+      "adapter_class": "ERPAdapter",
       "timeout_ms": 10000,
       "side_effect": false,
       "compensation": null,
@@ -13,7 +13,7 @@
     "create_quote": {
       "args_schema": {"customer": "string", "items": "list"},
       "permission": "write",
-      "simulated": true,
+      "adapter_class": "ERPAdapter",
       "timeout_ms": 15000,
       "side_effect": true,
       "compensation": "cancel_create_quote",
@@ -22,7 +22,7 @@
     "generate_pdf": {
       "args_schema": {"quote_id": "string"},
       "permission": "write",
-      "simulated": true,
+      "adapter_class": "ERPAdapter",
       "timeout_ms": 15000,
       "side_effect": false,
       "compensation": null,
@@ -31,7 +31,7 @@
     "send_whatsapp": {
       "args_schema": {"to": "string", "doc": "string"},
       "permission": "external_send",
-      "simulated": true,
+      "adapter_class": "WhatsAppAdapter",
       "timeout_ms": 20000,
       "requires_approval": true,
       "side_effect": true,
@@ -41,7 +41,7 @@
     "drop_table": {
       "args_schema": {"table": "string"},
       "permission": "danger",
-      "simulated": true,
+      "adapter_class": "SimulatedAdapter",
       "timeout_ms": 5000,
       "side_effect": true,
       "compensation": null,
@@ -49,7 +49,7 @@
     }
   },
   "permissions": {
-    "$comment": "Bir tool'u çağırabilmek için gereken izinler; agent başına allowlist v0.9.1'de genişler.",
+    "$comment": "Bir tool'u çağırabilmek için gereken izinler.",
     "allow": ["read", "write", "external_send"]
   }
 }

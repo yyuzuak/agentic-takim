@@ -171,6 +171,7 @@ class ToolCompensation(Base):
     compensate_fn: Mapped[str | None] = mapped_column(String, nullable=True)
     compensate_args: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    applied_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

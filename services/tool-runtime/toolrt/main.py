@@ -1,5 +1,9 @@
-"""Tool Runtime — ACP.TOOL.REQUEST tüketir; dry-run, schema validation, rate-limit,
-compensation kaydı ile action governance katmanı (v0.9.1)."""
+"""Tool Runtime — v1.1-a
+
+ACP.TOOL.REQUEST → ToolAdapter.execute() → ACP.TOOL.RESULT.
+Katmanlar (sırayla): idempotency → fault-inject → permission → dry-run
+→ schema → rate-limit → circuit-breaker → execute → compensation.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -18,25 +22,37 @@ from agentic_schemas.acp.v1 import ErrorCode, ErrorMessage, ResultMessage, Resul
 from agentic_schemas.events.v1 import Subject
 
 from . import compensator, rate_limiter, schema_validator
-from .db import SessionLocal, ToolInvocation, ToolCompensation
-from .tools import HANDLERS, load_catalog
+from .adapter import AdapterContext
+from .circuit_breaker import CircuitBreaker, CircuitOpenError
+from .db import SessionLocal, ToolInvocation
+from .tools import build_registry, load_catalog
 
 NATS_URL = os.environ.get("NATS_URL", "nats://nats:4222")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 DURABLE = "tool-runtime"
-NON_RETRYABLE = {"PERMISSION", "SCHEMA"}
+NON_RETRYABLE = {"PERMISSION", "SCHEMA", "CIRCUIT_OPEN"}
 
 
 def _now():
     return datetime.now(timezone.utc)
 
 
-async def run() -> None:
+async def run(registry: dict | None = None) -> None:
     nc = await nats.connect(NATS_URL, name="tool-runtime", reconnect_time_wait=2, max_reconnect_attempts=-1)
     js = nc.jetstream()
     catalog = load_catalog()
     allow = set(catalog.get("permissions", {}).get("allow", []))
     redis = await redis_from_url(REDIS_URL, decode_responses=True)
+
+    # Registry dışarıdan verilebilir (api.py) ya da burada oluşturulur
+    if registry is None:
+        registry = build_registry(catalog)
+    print(f"[registry] {len(registry)} adapter yüklendi: {list(registry.keys())}")
+
+    # v1.1-c: Her adapter için circuit breaker (Redis'te persist edilir)
+    breakers: dict[str, CircuitBreaker] = {
+        name: CircuitBreaker(name, redis) for name in registry
+    }
 
     async def _publish_ok(task: TaskMessage, result: dict, exec_id: str, dry_run: bool = False) -> None:
         payload = {**result, "exec_id": exec_id}
@@ -52,8 +68,6 @@ async def run() -> None:
                            in_reply_to=task.message_id, timestamp=int(time.time()),
                            error_code=ErrorCode(code) if code in ErrorCode.__members__ else ErrorCode.UNKNOWN,
                            message=message)
-        if retry_after:
-            err.payload["retry_after"] = retry_after
         await js.publish(Subject.TOOL_RESULT.value, err.model_dump_json(by_alias=True).encode())
 
     async def handle(msg) -> None:
@@ -65,9 +79,10 @@ async def run() -> None:
             exec_id = inputs.get("exec_id") or str(uuid4())
             attempt = int(inputs.get("attempt", 0))
             node_key = inputs.get("node", "?")
+            dry_run = bool(inputs.get("dry_run", False))
 
             async with SessionLocal() as s:
-                # 1) Idempotency: aynı exec_id daha önce success ise cache döndür
+                # 1) Idempotency
                 existing = (await s.execute(
                     select(ToolInvocation).where(ToolInvocation.exec_id == exec_id)
                 )).scalars().first()
@@ -80,7 +95,7 @@ async def run() -> None:
                 if attempt < int(inputs.get("fail_times", 0)):
                     await _record_fail(s, exec_id, task.trace_id, node_key, tool, args, attempt,
                                        "TRANSIENT", "injected")
-                    await _publish_fail(task, "TRANSIENT", f"injected tool fail attempt={attempt}")
+                    await _publish_fail(task, "TRANSIENT", f"injected fail attempt={attempt}")
                     return
 
                 # 3) Permission + catalog
@@ -91,17 +106,20 @@ async def run() -> None:
                     await _publish_fail(task, "PERMISSION", f"tool '{tool}' not permitted")
                     print(f"[tool] PERMISSION deny tool={tool}")
                     return
-                handler = HANDLERS.get(tool)
-                if handler is None:
+
+                # 4) Adapter lookup
+                adapter = registry.get(tool)
+                if adapter is None:
                     await _record_fail(s, exec_id, task.trace_id, node_key, tool, args, attempt,
-                                       "SCHEMA", f"no handler for '{tool}'")
-                    await _publish_fail(task, "SCHEMA", f"no handler for '{tool}'")
+                                       "SCHEMA", f"no adapter for '{tool}'")
+                    await _publish_fail(task, "SCHEMA", f"no adapter for '{tool}'")
                     return
 
-                # 4) Dry-run — yan etki yok, simüle sonuç (INV-2)
-                dry_run = bool(inputs.get("dry_run", False))
+                # 5) Dry-run (INV-2)
                 if dry_run:
-                    sim_result = handler(args) if handler else {}
+                    ctx = AdapterContext(exec_id=exec_id, task_id=str(task.trace_id),
+                                         node_key=node_key, dry_run=True, attempt=attempt)
+                    sim_result = await adapter.execute(args, ctx)
                     sim_result["_simulated"] = True
                     await _record_success(s, exec_id, task.trace_id, node_key, tool, args, attempt,
                                           sim_result, catalog, dry_run=True)
@@ -109,7 +127,7 @@ async def run() -> None:
                     print(f"[tool] dry-run ✓ {tool} exec_id={exec_id} node={node_key}")
                     return
 
-                # 5) Schema validation — INV-3
+                # 6) Schema validation (INV-3)
                 schema_errors = schema_validator.validate(tool, args, catalog)
                 if schema_errors:
                     await _record_fail(s, exec_id, task.trace_id, node_key, tool, args, attempt,
@@ -118,26 +136,40 @@ async def run() -> None:
                     print(f"[tool] SCHEMA error exec_id={exec_id} tool={tool}: {schema_errors}")
                     return
 
-                # 6) Rate limit — INV-5
+                # 7) Rate limit (INV-5)
                 allowed, retry_after = await rate_limiter.check(tool, task.trace_id, spec, redis)
                 if not allowed:
                     await _record_fail(s, exec_id, task.trace_id, node_key, tool, args, attempt,
                                        "RATE_LIMIT", f"rate limited retry_after={retry_after}")
-                    await _publish_fail(task, "RATE_LIMIT", f"rate limited", retry_after=retry_after)
+                    await _publish_fail(task, "RATE_LIMIT", "rate limited", retry_after=retry_after)
                     print(f"[tool] RATE_LIMIT exec_id={exec_id} tool={tool} retry_after={retry_after}")
                     return
 
-                # 7) Execute (timeout)
+                # 8) Execute via adapter + circuit breaker (v1.1-c)
                 timeout = spec.get("timeout_ms", 15000) / 1000
+                ctx = AdapterContext(exec_id=exec_id, task_id=str(task.trace_id),
+                                      node_key=node_key, dry_run=False, attempt=attempt)
+                cb = breakers.get(tool)
                 try:
-                    result = await asyncio.wait_for(asyncio.to_thread(handler, args), timeout=timeout)
+                    if cb:
+                        result = await asyncio.wait_for(
+                            cb.call(adapter.execute, args, ctx), timeout=timeout
+                        )
+                    else:
+                        result = await asyncio.wait_for(adapter.execute(args, ctx), timeout=timeout)
+                except CircuitOpenError as e:
+                    await _record_fail(s, exec_id, task.trace_id, node_key, tool, args, attempt,
+                                       "CIRCUIT_OPEN", str(e))
+                    await _publish_fail(task, "CIRCUIT_OPEN", str(e))
+                    print(f"[tool] CIRCUIT_OPEN exec_id={exec_id} tool={tool}")
+                    return
                 except asyncio.TimeoutError:
                     await _record_fail(s, exec_id, task.trace_id, node_key, tool, args, attempt,
                                        "TIMEOUT", "tool timeout")
                     await _publish_fail(task, "TIMEOUT", "tool timeout")
                     return
 
-                # 8) Atomic success + compensation (INV-1)
+                # 9) Atomic success + compensation (INV-1)
                 await _record_success(s, exec_id, task.trace_id, node_key, tool, args, attempt,
                                       result, catalog)
                 await _publish_ok(task, result, exec_id)
@@ -164,33 +196,26 @@ async def run() -> None:
 
 
 async def _record_success(s, exec_id, trace_id, node_key, tool, args, attempt,
-                           result, catalog, *,
-                           dry_run=False, rate_limited=False, schema_errors=None):
-    """Atomic: tool_invocations.status=success + compensation (INV-1)."""
+                           result, catalog, *, dry_run=False):
+    """Atomic: tool_invocations + compensation (INV-1)."""
     vals = dict(id=str(uuid4()), task_id=str(trace_id), node_key=node_key, tool=tool, args=args,
                 exec_id=exec_id, attempt=attempt, status="success", result=result,
-                dry_run=dry_run, rate_limited=rate_limited, schema_errors=schema_errors,
-                finished_at=_now())
+                dry_run=dry_run, rate_limited=False, finished_at=_now())
     stmt = pg_insert(ToolInvocation).values(**vals).on_conflict_do_update(
         index_elements=["exec_id"],
-        set_={"status": "success", "result": result, "dry_run": dry_run,
-              "rate_limited": rate_limited, "schema_errors": schema_errors, "finished_at": _now()},
+        set_={"status": "success", "result": result, "dry_run": dry_run, "finished_at": _now()},
     )
     await s.execute(stmt)
-    if not dry_run:  # INV-2: dry-run → compensation kaydı YOK
+    if not dry_run:
         await compensator.record_if_needed(s, exec_id, str(trace_id), node_key, tool, args, catalog)
     await s.commit()
 
 
-async def _record_fail(s, exec_id, trace_id, node_key, tool, args, attempt,
-                        error_code, error, *,
-                        schema_errors=None):
-    """exec_id ile idempotent insert (hata durumu)."""
+async def _record_fail(s, exec_id, trace_id, node_key, tool, args, attempt, error_code, error):
+    """Idempotent fail kaydı."""
     vals = dict(id=str(uuid4()), task_id=str(trace_id), node_key=node_key, tool=tool, args=args,
-                exec_id=exec_id, attempt=attempt, status="failed",
-                error_code=error_code, error=error,
-                dry_run=False, rate_limited=(error_code == "RATE_LIMIT"),
-                schema_errors=schema_errors, finished_at=_now())
+                exec_id=exec_id, attempt=attempt, status="failed", error_code=error_code, error=error,
+                dry_run=False, rate_limited=(error_code == "RATE_LIMIT"), finished_at=_now())
     stmt = pg_insert(ToolInvocation).values(**vals).on_conflict_do_update(
         index_elements=["exec_id"],
         set_={"status": "failed", "error_code": error_code, "error": error,

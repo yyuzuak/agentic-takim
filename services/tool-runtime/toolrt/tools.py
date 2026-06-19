@@ -1,13 +1,16 @@
-"""Simulated tool registry (v0.9) — gerçek dış çağrı YOK (sandbox stub).
+"""Tool catalog + ADAPTER_REGISTRY builder — v1.1-a
 
-Her tool deterministik sahte sonuç döner. Gerçek adaptörler (ERP/WhatsApp/CRM/SQL)
-v0.9.1 Tool Safety Layer'da. İzin/permission tools.json'dan gelir.
+load_catalog() JSON okur.
+build_registry() her tool için adapter_class'a göre ToolAdapter döndürür.
+Bilinmeyen / secrets eksik → SimulatedAdapter fallback (graceful degradation).
 """
 from __future__ import annotations
 
 import json
 import os
-import time
+
+from .adapter import ToolAdapter
+from .adapters.simulated import SIMULATED_ADAPTERS
 
 _CATALOG_PATH = os.environ.get("TOOLS_CONFIG", "/app/config/tools.json")
 
@@ -19,31 +22,58 @@ def load_catalog() -> dict:
     return raw
 
 
-# --- simulated tool handlers (deterministik) ---
-def _check_stock(args: dict) -> dict:
-    sku = args.get("sku", "UNKNOWN")
-    return {"sku": sku, "available": 42, "in_stock": True}
+def build_registry(catalog: dict) -> dict[str, ToolAdapter]:
+    """
+    catalog["tools"] içindeki her entry için adapter seç:
+    1. adapter_class belirtilmişse o sınıfı yükle (lazy import)
+    2. Secrets eksikse SimulatedAdapter'a fallback
+    3. Bilinmiyorsa SimulatedAdapter (varsa) veya skip
+    """
+    from . import secrets as sec
+
+    registry: dict[str, ToolAdapter] = {}
+    tools = catalog.get("tools") or {}
+
+    for tool_name, spec in tools.items():
+        adapter_class = spec.get("adapter_class", "SimulatedAdapter")
+
+        if adapter_class == "ERPAdapter":
+            if sec.resolver.available("erp"):
+                try:
+                    from .adapters.erp import ERPAdapter, ERPProvider
+                    provider_str = sec.resolver.inject("erp").get("provider", "bizimhesap")
+                    provider = ERPProvider(provider_str) if provider_str in ERPProvider._value2member_map_ else ERPProvider.BIZIMHESAP
+                    base_url = sec.resolver.inject("erp")["base_url"]
+                    api_key = sec.resolver.inject("erp")["api_key"]
+                    registry[tool_name] = ERPAdapter(provider=provider, base_url=base_url,
+                                                      api_key=api_key, tool_name=tool_name)
+                    continue
+                except Exception as e:
+                    print(f"[registry] ERPAdapter yüklenemedi ({tool_name}): {e} → simulated fallback")
+            else:
+                print(f"[registry] ERP secrets eksik ({tool_name}) → simulated fallback")
+
+        elif adapter_class == "WhatsAppAdapter":
+            if sec.resolver.available("whatsapp"):
+                try:
+                    from .adapters.whatsapp import WhatsAppAdapter
+                    token = sec.resolver.inject("whatsapp")["token"]
+                    phone_number_id = sec.resolver.inject("whatsapp").get("phone_number_id", "")
+                    registry[tool_name] = WhatsAppAdapter(token=token, phone_number_id=phone_number_id)
+                    continue
+                except Exception as e:
+                    print(f"[registry] WhatsAppAdapter yüklenemedi: {e} → simulated fallback")
+            else:
+                print(f"[registry] WhatsApp secrets eksik → simulated fallback")
+
+        # SimulatedAdapter (default / fallback)
+        if tool_name in SIMULATED_ADAPTERS:
+            registry[tool_name] = SIMULATED_ADAPTERS[tool_name]
+        else:
+            print(f"[registry] {tool_name} için adapter bulunamadı — atlandı")
+
+    return registry
 
 
-def _create_quote(args: dict) -> dict:
-    return {"quote_id": f"Q-{abs(hash(json.dumps(args, sort_keys=True))) % 100000}",
-            "customer": args.get("customer"), "items": args.get("items", [])}
-
-
-def _generate_pdf(args: dict) -> dict:
-    qid = args.get("quote_id", "Q-0")
-    return {"pdf_url": f"file:///quotes/{qid}.pdf", "pages": 2}
-
-
-def _send_whatsapp(args: dict) -> dict:
-    # SİMÜLASYON — gerçek gönderim yok. Tek "gönderim" idempotency ile garanti.
-    return {"to": args.get("to"), "doc": args.get("doc"), "delivered": True,
-            "message_id": f"wamid-{int(time.time()*1000)%1000000}"}
-
-
-HANDLERS = {
-    "check_stock": _check_stock,
-    "create_quote": _create_quote,
-    "generate_pdf": _generate_pdf,
-    "send_whatsapp": _send_whatsapp,
-}
+# Backward compat: eski HANDLERS dict (main.py geçişi için geçici köprü)
+HANDLERS: dict = {}  # build_registry() sonrası doldurulur, doğrudan kullanılmaz

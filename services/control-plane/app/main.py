@@ -313,10 +313,50 @@ async def get_compensations(task_id: str, session: AsyncSession = Depends(get_se
     return {"count": len(rows), "compensations": [
         {"id": r.id, "node_key": r.node_key, "tool": r.tool, "exec_id": r.exec_id,
          "compensate_fn": r.compensate_fn, "compensate_args": r.compensate_args,
-         "status": r.status, "created_at": r.created_at.isoformat() if r.created_at else None,
+         "status": r.status, "applied_result": r.applied_result,
+         "created_at": r.created_at.isoformat() if r.created_at else None,
          "applied_at": r.applied_at.isoformat() if r.applied_at else None}
         for r in rows
     ]}
+
+
+class ApplyIn(BaseModel):
+    actor: str = "anonymous"
+
+
+@app.post("/tasks/{task_id}/compensations/{exec_id}/apply")
+async def apply_compensation(
+    task_id: str, exec_id: str, body: ApplyIn,
+) -> dict:
+    """Compensation apply isteğini tool-runtime API'sine proxy'ler."""
+    import httpx
+    from .config import settings
+    url = f"{settings.tool_runtime_url}/compensations/{exec_id}/apply"
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(url, json={"actor": body.actor})
+    return r.json()
+
+
+@app.get("/health/adapters")
+async def health_adapters() -> dict:
+    """Adapter health bilgisini tool-runtime API'sinden proxy'ler."""
+    import httpx
+    from .config import settings
+    url = f"{settings.tool_runtime_url}/health/adapters"
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(url)
+    return r.json()
+
+
+@app.get("/tools/capabilities")
+async def tool_capabilities() -> dict:
+    """Capability bilgisini tool-runtime API'sinden proxy'ler."""
+    import httpx
+    from .config import settings
+    url = f"{settings.tool_runtime_url}/tools/capabilities"
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(url)
+    return r.json()
 
 
 @app.get("/metrics")
