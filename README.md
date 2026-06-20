@@ -2,7 +2,7 @@
 
 `atoms.dev` mantığıyla çalışan, her biri kendine has kişiliği ve skill seti olan bir **AI ajan takımı** ve onu çalıştıran **dağıtık runtime** için şablon repo. Klonla → `make setup` → tüm stack local'de ayağa kalkar.
 
-> **Durum:** v1.3 Observer & Metrics tamamlandı. Bağımsız Observer servisi (port 8002, read-only sidecar analytics plane) 9 KPI + composite skor + failure clustering + advisory öneri üretir; Agent Studio'da canlı Observer Dashboard. Sistem artık kendi davranışını ölçüyor (Observe fazı).
+> **Durum:** v1.3.1 Premium UI tamamlandı. Agent Studio yeniden tasarlandı: sol sidebar, dark/light tema switcher (next-themes), Inter font, CVA tabanlı design system (Button/Card/Badge/Table), framer-motion mikro-animasyon, Recharts veri görselleştirme (Observer). Tüm renkler tema-duyarlı semantic token. (Backend: v1.3 Observer & Metrics — 9 KPI + skor + clustering + advisory.)
 
 ## Quickstart (2 dakika)
 
@@ -258,6 +258,7 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
 - [x] **v1.1 Production Connectors** — ToolAdapter Protocol (Protocol + runtime_checkable), ERPAdapter (BizimHesap/Logo/Netsis/Mikro enum, dry_run), WhatsAppAdapter (graph.facebook.com), Circuit Breaker (Redis-persisted CLOSED→OPEN→HALF_OPEN), tool-runtime HTTP API (port 8001), compensation apply endpoint; secrets katmanı (tek os.environ erişim noktası)
 - [x] **v1.2 Agent Studio** — Tailwind + shadcn/ui + React Flow DAG (otomatik topolojik layout, inline Onayla butonu, animasyonlu kenarlar) + TanStack Query polling; 5 ekran: Studio (goal input + 3-kolon grid), Görevler, Task Detail (DAG|Timeline split), Tool Center (adapter health + capabilities tablosu), Hafıza Explorer, Observer stub
 - [x] **v1.3 Observer & Metrics** — bağımsız `services/observer` (port 8002, read-only sidecar analytics plane); 9 KPI (workflow/planner/retry/dlq/tool/memory/compensation) mevcut tablolardan windowed (1h/24h/7d) hesaplama, MIN_SAMPLES cold-start fallback; weighted composite skor (Bayesian tool smoothing, nonlinear retry_health), noise-guarded anomaly delta; rule-based failure clustering (cluster_strength + severity escalation); advisory recommendations (linked_kpis); in-process cache (30s TTL); service-to-service auth (X-Internal-Token); bounded query invariant (enforced LIMIT, no full scan); canlı Observer Dashboard (6 bölüm)
+- [x] **v1.3.1 Premium UI** — Agent Studio yeniden tasarımı: sol sidebar nav, dark/light tema switcher (next-themes, CSS-var iki palet), Inter (next/font), CVA design system (Button/Card/Badge/Table/Skeleton), framer-motion (stagger kartlar + mobil drawer), Recharts (Observer tool-reliability bar + 3-window skor trendi); tüm renkler tema-duyarlı semantic token (hardcoded dark-only renk = 0)
 - [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
 - [ ] v1.4 Observer Advise — recommendation → planner prompt injection; statistical confidence layer, retry causality, cross-cluster correlation, HMAC/rotating service auth
 - [ ] v2.0 SaaS Multi-Tenant (organizations, users, roles, billing, API keys)

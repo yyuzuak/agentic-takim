@@ -37,18 +37,18 @@ interface DagEdge {
 }
 
 const STATUS_RING: Record<string, string> = {
-  done: "ring-emerald-500/60",
-  running: "ring-blue-500/60",
-  in_progress: "ring-blue-500/60",
-  awaiting_approval: "ring-amber-500/60",
-  failed: "ring-red-500/60",
-  pending: "ring-zinc-600/40",
-  ready: "ring-zinc-500/40",
+  done: "ring-success/60",
+  running: "ring-info/60",
+  in_progress: "ring-info/60",
+  awaiting_approval: "ring-warning/60",
+  failed: "ring-destructive/60",
+  pending: "ring-border",
+  ready: "ring-border",
 };
 
 function AgentNode({ data }: NodeProps) {
   const d = data as DagNode["data"];
-  const ring = STATUS_RING[d.status] ?? "ring-zinc-600/40";
+  const ring = STATUS_RING[d.status] ?? "ring-border";
   const isApproval = d.kind === "approval";
   const needsApproval = isApproval && d.status === "awaiting_approval";
 
@@ -56,7 +56,7 @@ function AgentNode({ data }: NodeProps) {
     <div className={cn(
       "rounded-xl border border-border bg-card px-4 py-3 min-w-[160px] shadow-lg ring-2 transition-all",
       ring,
-      needsApproval && "animate-pulse ring-amber-400/80",
+      needsApproval && "animate-pulse ring-warning/80",
     )}>
       <Handle type="target" position={Position.Top} className="!bg-border !w-2 !h-2" />
       <div className="flex flex-col gap-1.5">
@@ -66,7 +66,7 @@ function AgentNode({ data }: NodeProps) {
         {needsApproval && d.onApprove && (
           <button
             onClick={e => { e.stopPropagation(); d.onApprove?.(); }}
-            className="mt-1 rounded-md bg-amber-500 hover:bg-amber-400 text-black text-xs font-semibold px-2 py-1 transition-colors"
+            className="mt-1 rounded-md bg-warning hover:bg-warning/90 text-warning-foreground text-xs font-semibold px-2 py-1 transition-colors"
           >
             Onayla
           </button>
@@ -138,7 +138,7 @@ function layoutNodes(plan: PlanNode[], nodeMap: Map<string, NodeDetail>): { node
         target: n.key,
         type: "smoothstep",
         animated: depStatus === "in_progress" || depStatus === "running",
-        style: { stroke: depStatus === "done" ? "#10b981" : "#334155", strokeWidth: 2 },
+        style: { stroke: depStatus === "done" ? "hsl(var(--success))" : "hsl(var(--border))", strokeWidth: 2 },
       });
     });
   });
@@ -178,7 +178,7 @@ export function DagView({ plan, nodeMap, onApproveNode }: DagProps) {
         elementsSelectable={false}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#1e2535" gap={20} />
+        <Background color="hsl(var(--border))" gap={20} />
         <Controls className="!bg-card !border-border !text-foreground" />
       </ReactFlow>
     </div>

@@ -413,3 +413,35 @@ Execution Plane          Observability Plane       Control Plane
 
 > **v1.4'e ertelenenler:** statistical confidence layer, retry causality, cross-cluster
 > correlation, HMAC/rotating token, advisory→planner injection, cause-chain visualization.
+
+---
+
+## 17. v1.3.1 UI Design System (Agent Studio Premium)
+
+Agent Studio (`apps/web`) admin-panel'den premium SaaS dashboard'a yükseltildi.
+
+### Tema & Tipografi
+- **next-themes** (`attribute="class"`): dark + light, CSS-var iki palet (`globals.css`:
+  `:root` light, `.dark` dark). Toggle sidebar'da; tercih localStorage'da kalıcı; FOUC yok
+  (`suppressHydrationWarning` + `disableTransitionOnChange`).
+- **Inter** (`next/font/google`, `--font-inter`) — self-hosted, layout-shift yok.
+- **Semantic token invariant:** Hiçbir bileşen hardcoded dark-only renk (`*-950/*-400`)
+  kullanmaz; tüm renkler token (`bg-card`, `text-foreground`, `bg-success`, `text-warning` …)
+  üzerinden → light/dark otomatik. Recharts/React Flow renkleri `hsl(var(--*))` ile çözülür.
+
+### Layout
+- **Sol sidebar** (`components/sidebar.tsx` + `app-shell.tsx`): logo, 5 nav (lucide ikon,
+  `usePathname` aktif state), tema toggle + versiyon. Desktop sticky grid; mobilde
+  framer-motion drawer (hamburger + backdrop).
+
+### Design System (CVA) — `app/components/ui/`
+- `button` (primary/secondary/ghost/outline/destructive + loading), `card` (shadow + hover lift),
+  `badge` (success/warning/info/danger/neutral), `table` (sticky header, hover row),
+  `skeleton` (shimmer), `theme-toggle`. `status-badge` → Badge + lucide ikon, status→variant map.
+
+### Motion & Görselleştirme
+- **framer-motion**: kart stagger giriş (`fade-in/slide-up`), mobil drawer spring.
+- **Recharts** (Observer): tool-reliability yatay BarChart (eşik çizgisi 0.80, renk token'lı
+  Cell) + 3-window (1h/24h/7d) overall-score LineChart. Tema değişince renkler yeniden çözülür.
+
+> Tag: `v1.3.1-premium-ui`. Backend roadmap'i etkilemez; v1.4 Observer Advise sırasında kalır.

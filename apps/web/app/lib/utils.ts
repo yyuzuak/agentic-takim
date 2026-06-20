@@ -13,7 +13,9 @@ export function timeAgo(iso: string | null): string {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}dk önce`;
   const h = Math.floor(m / 60);
-  return `${h}s önce`;
+  if (h < 24) return `${h}sa önce`;
+  const d = Math.floor(h / 24);
+  return `${d}g önce`;
 }
 
 export function fmtTime(iso: string | null): string {

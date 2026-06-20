@@ -82,10 +82,10 @@ const ICONS = {
 };
 
 const ICON_COLORS = {
-  success: "text-emerald-400",
-  pending: "text-amber-400",
-  error: "text-red-400",
-  info: "text-blue-400",
+  success: "text-success",
+  pending: "text-warning",
+  error: "text-destructive",
+  info: "text-info",
 };
 
 export function Timeline({

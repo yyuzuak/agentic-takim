@@ -3,19 +3,51 @@
 @tailwind utilities;
 
 @layer base {
+  /* Light tema (varsayılan :root) */
   :root {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 95%;
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 95%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --border: 214 32% 91%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --primary: 217 91% 55%;
+    --primary-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+    --info: 217 91% 55%;
+    --info-foreground: 0 0% 100%;
+    --sidebar: 210 40% 96%;
+    --sidebar-foreground: 222 47% 11%;
+    --radius: 0.625rem;
+  }
+
+  /* Dark tema */
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 96%;
     --border: 217 33% 18%;
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 55%;
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 60%;
     --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 5%;
+    --primary-foreground: 222 47% 6%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
-    --radius: 0.5rem;
+    --success: 142 69% 45%;
+    --success-foreground: 222 47% 6%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 222 47% 6%;
+    --info: 217 91% 65%;
+    --info-foreground: 222 47% 6%;
+    --sidebar: 222 47% 9%;
+    --sidebar-foreground: 210 40% 96%;
   }
 
   * {
@@ -25,12 +57,24 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
+    /* çok hafif radial accent — her iki temada */
+    background-image: radial-gradient(
+      ellipse 80% 50% at 50% -20%,
+      hsl(var(--primary) / 0.06),
+      transparent
+    );
+    background-attachment: fixed;
+  }
+
+  /* sayısal hizalama — metrikler/tablolar */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-/* React Flow override: dark bg */
+/* React Flow — tema-duyarlı */
 .react-flow__background {
   background-color: hsl(var(--muted)) !important;
 }
@@ -39,4 +83,31 @@
 }
 .react-flow__minimap {
   display: none;
+}
+.react-flow__controls {
+  box-shadow: none !important;
+}
+.react-flow__controls-button {
+  background: hsl(var(--card)) !important;
+  border-color: hsl(var(--border)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+
+/* skeleton shimmer */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--foreground) / 0.06),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
 }

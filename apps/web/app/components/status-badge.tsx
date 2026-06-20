@@ -1,26 +1,34 @@
+import {
+  CheckCircle2, Loader2, Clock, XCircle, ShieldQuestion, Ban, AlertTriangle, type LucideIcon,
+} from "lucide-react";
+import { Badge, type BadgeProps } from "./ui/badge";
 import { cn } from "../lib/utils";
 
-const MAP: Record<string, { label: string; cls: string; dot: string }> = {
-  done:               { label: "Tamamlandı",     cls: "bg-emerald-950 text-emerald-400 border-emerald-800",  dot: "bg-emerald-400" },
-  running:            { label: "Çalışıyor",       cls: "bg-blue-950 text-blue-400 border-blue-800",          dot: "bg-blue-400 animate-pulse" },
-  in_progress:        { label: "Çalışıyor",       cls: "bg-blue-950 text-blue-400 border-blue-800",          dot: "bg-blue-400 animate-pulse" },
-  pending:            { label: "Bekliyor",         cls: "bg-zinc-900 text-zinc-400 border-zinc-700",          dot: "bg-zinc-500" },
-  ready:              { label: "Hazır",            cls: "bg-zinc-900 text-zinc-400 border-zinc-700",          dot: "bg-zinc-400" },
-  failed:             { label: "Hatalı",           cls: "bg-red-950 text-red-400 border-red-800",             dot: "bg-red-400" },
-  awaiting_approval:  { label: "Onay Bekliyor",   cls: "bg-amber-950 text-amber-400 border-amber-800",       dot: "bg-amber-400 animate-pulse" },
-  blocked:            { label: "Engellendi",       cls: "bg-orange-950 text-orange-400 border-orange-800",    dot: "bg-orange-400" },
-  applied:            { label: "Uygulandı",        cls: "bg-emerald-950 text-emerald-400 border-emerald-800", dot: "bg-emerald-400" },
-  healthy:            { label: "Sağlıklı",         cls: "bg-emerald-950 text-emerald-400 border-emerald-800", dot: "bg-emerald-400" },
-  degraded:           { label: "Düşük",            cls: "bg-amber-950 text-amber-400 border-amber-800",       dot: "bg-amber-400" },
-  down:               { label: "Çevrimdışı",       cls: "bg-red-950 text-red-400 border-red-800",             dot: "bg-red-400" },
+type Variant = NonNullable<BadgeProps["variant"]>;
+type Spec = { label: string; variant: Variant; icon: LucideIcon; spin?: boolean; pulse?: boolean };
+
+const MAP: Record<string, Spec> = {
+  done: { label: "Tamamlandı", variant: "success", icon: CheckCircle2 },
+  applied: { label: "Uygulandı", variant: "success", icon: CheckCircle2 },
+  healthy: { label: "Sağlıklı", variant: "success", icon: CheckCircle2 },
+  running: { label: "Çalışıyor", variant: "info", icon: Loader2, spin: true },
+  in_progress: { label: "Çalışıyor", variant: "info", icon: Loader2, spin: true },
+  pending: { label: "Bekliyor", variant: "neutral", icon: Clock },
+  ready: { label: "Hazır", variant: "neutral", icon: Clock },
+  failed: { label: "Hatalı", variant: "danger", icon: XCircle },
+  down: { label: "Çevrimdışı", variant: "danger", icon: XCircle },
+  awaiting_approval: { label: "Onay Bekliyor", variant: "warning", icon: ShieldQuestion, pulse: true },
+  blocked: { label: "Engellendi", variant: "warning", icon: Ban },
+  degraded: { label: "Düşük", variant: "warning", icon: AlertTriangle },
 };
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
-  const m = MAP[status] ?? { label: status, cls: "bg-zinc-900 text-zinc-400 border-zinc-700", dot: "bg-zinc-500" };
+  const s = MAP[status] ?? { label: status, variant: "neutral" as Variant, icon: Clock };
+  const Icon = s.icon;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-medium", m.cls, className)}>
-      <span className={cn("w-1.5 h-1.5 rounded-full", m.dot)} />
-      {m.label}
-    </span>
+    <Badge variant={s.variant} className={cn(s.pulse && "animate-pulse", className)}>
+      <Icon className={cn("w-3 h-3", s.spin && "animate-spin")} />
+      {s.label}
+    </Badge>
   );
 }
