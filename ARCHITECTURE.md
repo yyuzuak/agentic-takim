@@ -344,4 +344,24 @@ Bu spesifikasyon olgunlaştığında sistem şunları sağlayacak:
 - ✔ Dinamik replan, retry, durable checkpoint
 - ✔ Bütçe yönetimi + güvenlik/izolasyon + human-in-the-loop
 
-> **Sonraki adım:** Stack seçildi (bkz. `STACK.md` — LangGraph tabanlı). Sırada bu spec'in çalışan koda dönüştürülmesi var. Henüz kod yazılmamıştır.
+> **Durum (v1.2):** Sistem çalışıyor. Tool Runtime (port 8001) + Control-plane (port 8000) + Agent Studio UI (port 3000) prodüksiyona hazır. DAG yürütme, tool adapter, circuit breaker, compensation ledger ve human-in-the-loop tamamen implemente edildi.
+
+---
+
+## 15. v1.1–v1.2 İmplemente Edilen Bileşenler
+
+### Tool Runtime (services/tool-runtime, port 8001)
+- **ToolAdapter Protocol** (`typing.Protocol`, `@runtime_checkable`): `execute / compensate / healthcheck / capabilities / validate_args`
+- **ADAPTER_REGISTRY**: `build_registry(catalog)` lazy-import; ERP/WhatsApp sırları yoksa `SimulatedAdapter` fallback
+- **Secrets Layer** (`secrets.py`): tek `os.environ` erişim noktası; API key değerleri asla loglanmaz
+- **ERPAdapter**: BizimHesap/Logo/Netsis/Mikro `ERPProvider` enum; dry_run + real HTTP dispatch + DELETE compensation
+- **WhatsAppAdapter**: graph.facebook.com/v19.0; non-reversible compensation
+- **Circuit Breaker**: Redis-persisted `CLOSED→OPEN→HALF_OPEN`; `fail_threshold=5`, `recovery=60s`, `CIRCUIT_OPEN` ErrorCode (non-retryable)
+- **FastAPI HTTP API**: `GET /health`, `GET /health/adapters`, `GET /tools/capabilities`, `POST /compensations/{exec_id}/apply`
+- **Dual-mode**: NATS consumer + HTTP server aynı process (`asyncio.create_task`)
+
+### Agent Studio UI (apps/web, port 3000)
+- **Tailwind + shadcn/ui**: dark theme CSS vars, `globals.css`, `cn()` utility
+- **TanStack Query**: typed API layer (`lib/api.ts`), `refetchInterval` polling (2–4s)
+- **React Flow (`@xyflow/react`)**: otomatik topolojik layout (BFS layering), animasyonlu kenarlar, inline Onayla butonu
+- **5 ekran**: Studio (goal input + 3-kolon task grid), Görevler listesi, Task Detail (DAG|Timeline split view), Tool Center (adapter health + capabilities), Hafıza Explorer (recall + tablo), Observer (metrik kartlar + v1.3 stub)

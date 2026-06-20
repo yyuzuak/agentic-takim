@@ -2,7 +2,7 @@
 
 `atoms.dev` mantığıyla çalışan, her biri kendine has kişiliği ve skill seti olan bir **AI ajan takımı** ve onu çalıştıran **dağıtık runtime** için şablon repo. Klonla → `make setup` → tüm stack local'de ayağa kalkar.
 
-> **Durum:** İskelet (scaffold). Çekirdek bootstrap + minimal çalışan stub'lar hazır; ajan/skill mantığı spesifikasyonlarda tanımlı, kademeli olarak kodlanacak.
+> **Durum:** v1.2 Agent Studio tamamlandı. Tailwind + React Flow DAG + TanStack Query tabanlı yeni UI; 5 ekran: Studio / Görevler / Tool Center / Hafıza / Observer. Tüm backend (v1.1 Production Connectors) ve UI prodüksiyona hazır.
 
 ## Quickstart (2 dakika)
 
@@ -253,9 +253,11 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
       simulated tools (check_stock/create_quote/generate_pdf/send_whatsapp); v0.6 retry/DLQ yeniden kullanımı
 - [x] **v0.9.1 Tool Safety Layer** — dry-run modu, runtime+plan-time argüman şema doğrulaması, Redis sliding-window rate-limit (RATE_LIMIT→retry), atomic compensation ledger (tool_compensations), tool_invocations audit genişletme
 - [x] **v1.0 Agentic OS MVP** — Next.js web UI: görev oluştur, canlı DAG görselleştirme (node onay butonu dahil), tool invocation viewer, compensation ledger, audit timeline (event stream), hafıza tarayıcı + recall; GET /tasks list endpoint
+- [x] **v1.1 Production Connectors** — ToolAdapter Protocol (Protocol + runtime_checkable), ERPAdapter (BizimHesap/Logo/Netsis/Mikro enum, dry_run), WhatsAppAdapter (graph.facebook.com), Circuit Breaker (Redis-persisted CLOSED→OPEN→HALF_OPEN), tool-runtime HTTP API (port 8001), compensation apply endpoint; secrets katmanı (tek os.environ erişim noktası)
+- [x] **v1.2 Agent Studio** — Tailwind + shadcn/ui + React Flow DAG (otomatik topolojik layout, inline Onayla butonu, animasyonlu kenarlar) + TanStack Query polling; 5 ekran: Studio (goal input + 3-kolon grid), Görevler, Task Detail (DAG|Timeline split), Tool Center (adapter health + capabilities tablosu), Hafıza Explorer, Observer stub
 - [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
-- [ ] v1.1 Production Connectors (WhatsApp/ERP/SMTP/Webhook gerçek adaptörler + compensation apply)
-- [ ] v1.2 SaaS Multi-Tenant (organizations, users, roles, billing, API keys)
+- [ ] v1.3 Observer Agent — Gözcü canlı metrikler, kalite skorlama, anomali tespiti, öğrenme döngüsü; SSE endpoint (GET /tasks/{id}/stream)
+- [ ] v2.0 SaaS Multi-Tenant (organizations, users, roles, billing, API keys)
 
 ---
 
