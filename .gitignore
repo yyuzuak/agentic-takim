@@ -34,3 +34,6 @@ infra/**/data/
 
 # CodeGraph (yerel index)
 .codegraph/
+
+# v2.0-A artifact export çıktıları (üretilen uygulamalar)
+generated/

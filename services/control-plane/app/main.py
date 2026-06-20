@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +50,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agentic Takım — Control Plane", version="0.2.0", lifespan=lifespan)
+
+# CORS — Agent Studio (tarayıcı) control-plane'e farklı origin'den (port 53000/3000)
+# istek atar. Local dev: tüm localhost origin'lerine izin. Prod'da settings'ten daraltılır.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
