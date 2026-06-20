@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     observer_url: str = "http://observer:8002"  # v1.3: analytics plane proxy
     observer_internal_token: str = "dev-internal-token"  # service-to-service auth
     builder_url: str = "http://builder:8003"  # v2.1: workspace runtime proxy
+    sandbox_url: str = "http://sandbox:8004"  # v2.2: build execution proxy
 
 
 settings = Settings()

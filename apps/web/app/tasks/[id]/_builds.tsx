@@ -2,11 +2,15 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Hammer, FileCode, CheckCircle2, XCircle, ChevronRight, ChevronDown } from "lucide-react";
-import { buildRepo, getTaskBuilds, getBuild, getBuildFile, type BuildRecord } from "../../lib/api";
+import {
+  buildRepo, getTaskBuilds, getBuild, getBuildFile, runBuild, getBuildRuns,
+  type BuildRecord, type BuildRun,
+} from "../../lib/api";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { cn } from "../../lib/utils";
+import { Play } from "lucide-react";
 
 function FileViewer({ buildId, path }: { buildId: string; path: string }) {
   const { data, isLoading } = useQuery({
@@ -17,6 +21,70 @@ function FileViewer({ buildId, path }: { buildId: string; path: string }) {
     <pre className="text-xs p-3 overflow-x-auto bg-background/60 leading-relaxed max-h-80">
       <code>{isLoading ? "yükleniyor…" : data?.content}</code>
     </pre>
+  );
+}
+
+function StageBadge({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 text-xs", ok ? "text-success" : "text-destructive")}>
+      {ok ? "✓" : "✗"} {label}
+    </span>
+  );
+}
+
+function RunSection({ buildId }: { buildId: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["build-runs", buildId],
+    queryFn: () => getBuildRuns(buildId),
+    refetchInterval: 4000,
+  });
+  const mut = useMutation({
+    mutationFn: () => runBuild(buildId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["build-runs", buildId] }),
+  });
+  const latest: BuildRun | undefined = data?.runs?.[0];
+
+  return (
+    <div className="rounded-lg border border-border p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground">Sandbox Build</span>
+        <Button size="sm" onClick={() => mut.mutate()} loading={mut.isPending}>
+          {!mut.isPending && <Play className="w-3.5 h-3.5" />}
+          {mut.isPending ? "Build ediliyor… (dakikalar sürebilir)" : "Çalıştır"}
+        </Button>
+      </div>
+      {latest && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-3 flex-wrap text-xs">
+            <Badge variant={latest.status === "passed" ? "success" : "danger"}>
+              {latest.status === "passed" ? "PASSED" : "FAILED"}
+            </Badge>
+            <StageBadge label="npm install" ok={latest.install_ok} />
+            <StageBadge label="prisma" ok={latest.prisma_ok} />
+            <StageBadge label="build" ok={latest.build_ok} />
+            <span className="text-muted-foreground tabular-nums ml-auto">{latest.duration_s}s</span>
+          </div>
+          {latest.errors && latest.errors.length > 0 && (
+            <div className="space-y-1">
+              {latest.errors.map((e, i) => (
+                <div key={i} className="text-xs">
+                  <span className="text-destructive font-medium">[{e.category}]</span>{" "}
+                  {e.file && <span className="font-mono text-muted-foreground">{e.file} — </span>}
+                  <span>{e.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {latest.log_tail && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">Ham log</summary>
+              <pre className="mt-1 p-2 rounded bg-background/60 overflow-x-auto max-h-60">{latest.log_tail}</pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -89,9 +157,8 @@ function BuildCard({ build }: { build: BuildRecord }) {
             </div>
           </div>
 
-          <div className="rounded-lg bg-muted/40 p-2 text-xs font-mono text-muted-foreground">
-            cd workspace && npm install && npx prisma db push && npm run dev
-          </div>
+          {/* v2.2 — sandbox'ta gerçekten build et */}
+          <RunSection buildId={build.build_id} />
         </div>
       )}
     </Card>

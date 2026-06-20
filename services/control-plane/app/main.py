@@ -468,6 +468,46 @@ async def get_build_file(build_id: str, path: str) -> dict:
     return r.json()
 
 
+# ---------------------------------------------------------------- v2.2 -------
+# Sandbox build execution — sandbox saf executor; control-plane sonucu persist eder.
+@app.post("/builds/{build_id}/run")
+async def run_build(build_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """Build'i sandbox'ta gerçekten çalıştır (npm install/prisma/build), sonucu persist et."""
+    import httpx
+    import uuid as _uuid
+    from .config import settings
+    from .models import BuildRun
+    url = f"{settings.sandbox_url}/run/{build_id}"
+    async with httpx.AsyncClient(timeout=420) as client:  # gerçek build dakikalar sürebilir
+        r = await client.post(url)
+    res = r.json()
+    run = BuildRun(
+        run_id=res.get("run_id") or f"run_{_uuid.uuid4().hex[:12]}",
+        build_id=build_id, status=res.get("status", "failed"), stage=res.get("stage", "setup"),
+        install_ok=res.get("install_ok", False), prisma_ok=res.get("prisma_ok", False),
+        build_ok=res.get("build_ok", False), duration_s=res.get("duration_s", 0.0),
+        errors=res.get("errors"), log_tail=res.get("log_tail"),
+    )
+    session.add(run)
+    await session.commit()
+    return res
+
+
+@app.get("/builds/{build_id}/runs")
+async def list_build_runs(build_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    from .models import BuildRun
+    rows = (await session.execute(
+        select(BuildRun).where(BuildRun.build_id == build_id).order_by(BuildRun.created_at.desc())
+    )).scalars().all()
+    return {"count": len(rows), "runs": [
+        {"run_id": r.run_id, "status": r.status, "stage": r.stage,
+         "install_ok": r.install_ok, "prisma_ok": r.prisma_ok, "build_ok": r.build_ok,
+         "duration_s": r.duration_s, "errors": r.errors, "log_tail": r.log_tail,
+         "created_at": r.created_at.isoformat() if r.created_at else None}
+        for r in rows
+    ]}
+
+
 @app.get("/")
 async def root() -> dict:
     return {"name": "Agentic Takım", "docs": "/docs", "health": "/health", "agents": "/agents", "tasks": "POST /tasks"}

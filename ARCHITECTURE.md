@@ -571,3 +571,39 @@ UI Workspace Explorer: Build #N + validator rozeti+sürüm + fingerprint + dosya
 > Tag: `v2.1-workspace-runtime`. Doğrulama: C1–C8 (build, dedupe/reproducibility, manifest
 > envanteri, validator versioning, Workspace Explorer, v2.0-B host script regresyon) yeşil.
 > Sonraki: v2.2 sandbox (gerçek build) → v2.3 live preview.
+
+---
+
+## 21. v2.2 Build Execution Layer (repo gerçekten build oluyor mu?)
+
+Üç soru, üç faz: v2.1 "doğru üretildi mi?" (validator) → **v2.2 "build oluyor mu?"** (sandbox) →
+v3.0 "kendini düzeltir mi?" (autonomous repair). v2.2 = Execution & Observability; **closed-loop YOK**.
+
+### services/sandbox (port 8004) — stateless executor
+```
+control-plane POST /builds/{id}/run → sandbox POST /run/{id}
+  workspace READ-ONLY mount → /tmp/run/<run_id>'ye kopya (uid çakışması yok, kalıcı workspace
+  kirlenmez, stored build kurcalanamaz) → subprocess:
+    npm install (180s) → npx prisma db push (60s) → npm run build (300s); ilk hatada dur
+  → structured error extraction + log_tail → temizle
+← {status, stage, install_ok, prisma_ok, build_ok, duration_s, errors[], log_tail}
+control-plane → build_runs persist (migration 0013) → UI
+```
+- **Sorumluluk:** sandbox saf executor (DB yok); persist + gateway control-plane; build kaydı builder.
+- **Hardening (Bootstrap):** non-root user, workspace **read-only**, yazma yalnız `/tmp`,
+  `mem_limit 2g` + `cpus 2`, aşama timeout, Docker socket/privileged YOK.
+
+### Structured Error Extraction (v2.2 merkezi) — `sandbox/errors.py`
+Ham log → `{phase, category, file?, message, severity}`. Kategoriler: missing_dependency,
+prisma_schema_error, type_error, syntax_error, timeout, unknown (ham log_tail fallback).
+Bu, v3.0 autonomous repair'in **girdisi** — ama v2.2'de otomatik repair yok, sadece teşhis.
+
+### build_runs tablosu
+`run_id, build_id, status, stage, install_ok/prisma_ok/build_ok, duration_s, errors(JSON), log_tail`.
+Her `/run` yeni satır; build_id'ye bağlı (Build → Run #N).
+
+> **Güvenlik notu:** subprocess hâlâ LLM-üretilen npm postinstall'unu sandbox konteynerinde
+> koşar; konteyner+non-root+read-only+limit lokal dev için yeterli, prodüksiyon ephemeral/gVisor ister.
+> Tag: `v2.2-build-execution`. Doğrulama D1–D8: gerçek build (blog uygulaması install+prisma+build
+> ✓ 25s), kasıtlı hata → failed @ build + structured error, persist, UI raporu, regresyon yeşil.
+> Sonraki: v2.3 live preview, v3.0 autonomous repair.

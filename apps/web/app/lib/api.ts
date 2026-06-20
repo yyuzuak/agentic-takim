@@ -40,6 +40,10 @@ export const getTaskBuilds = (taskId: string) => get<BuildList>(`/tasks/${taskId
 export const getBuild = (buildId: string) => get<BuildDetail>(`/builds/${buildId}`);
 export const getBuildFile = (buildId: string, path: string) =>
   get<{ path: string; content: string }>(`/builds/${buildId}/file?path=${encodeURIComponent(path)}`);
+
+// --- v2.2 Build Execution (sandbox, via control-plane proxy) ---
+export const runBuild = (buildId: string) => post<BuildRun>(`/builds/${buildId}/run`);
+export const getBuildRuns = (buildId: string) => get<BuildRunList>(`/builds/${buildId}/runs`);
 export const getMemory = () => get<MemoryList>(`/memory`);
 export const recallMemory = (goal: string) => get<RecallResult>(`/memory/recall?goal=${encodeURIComponent(goal)}`);
 export const applyCompensation = (taskId: string, execId: string, actor = "studio") =>
@@ -199,6 +203,33 @@ export interface BuildDetail extends BuildRecord {
 export interface BuildList {
   count: number;
   builds: BuildRecord[];
+}
+
+// --- v2.2 Build Run types ---
+export interface BuildError {
+  phase: string;
+  category: string;
+  file: string | null;
+  message: string;
+  severity: string;
+}
+
+export interface BuildRun {
+  run_id: string;
+  status: string; // passed | failed
+  stage: string;  // install | prisma | build | done | setup
+  install_ok: boolean;
+  prisma_ok: boolean;
+  build_ok: boolean;
+  duration_s: number;
+  errors: BuildError[] | null;
+  log_tail: string | null;
+  created_at?: string | null;
+}
+
+export interface BuildRunList {
+  count: number;
+  runs: BuildRun[];
 }
 
 export interface ContextEvent {

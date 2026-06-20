@@ -215,6 +215,23 @@ class TaskCritique(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BuildRun(Base):
+    """v2.2 — sandbox build çalıştırma sonucu (build_id'ye bağlı). Structured errors dahil."""
+    __tablename__ = "build_runs"
+
+    run_id: Mapped[str] = mapped_column(String, primary_key=True)
+    build_id: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)  # passed | failed
+    stage: Mapped[str] = mapped_column(String, nullable=False)
+    install_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    prisma_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    build_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    duration_s: Mapped[float] = mapped_column(Float, default=0.0)
+    errors: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    log_tail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TaskNode(Base):
     """DAG düğümü — bir alt görev. depends_on, aynı task içindeki node_key'lere referans."""
     __tablename__ = "task_nodes"
