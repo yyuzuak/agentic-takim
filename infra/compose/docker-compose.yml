@@ -83,6 +83,7 @@ services:
       LLM_AVAILABLE: ${LLM_AVAILABLE:-false}
       MEMORY_AVAILABLE: ${MEMORY_AVAILABLE:-false}
       OBSERVABILITY_AVAILABLE: ${OBSERVABILITY_AVAILABLE:-false}
+      OBSERVER_INTERNAL_TOKEN: ${OBSERVER_INTERNAL_TOKEN:-dev-internal-token}
     ports:
       - "${CONTROL_PLANE_PORT:-8000}:8000"
     depends_on:
@@ -149,6 +150,22 @@ services:
       nats:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # v1.3 — Observer: post-hoc analytics plane (read-only). Execution path'e dahil değil.
+  observer:
+    build:
+      context: ../..
+      dockerfile: services/observer/Dockerfile
+    profiles: ["core"]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      OBSERVER_INTERNAL_TOKEN: ${OBSERVER_INTERNAL_TOKEN:-dev-internal-token}
+    ports:
+      - "${OBSERVER_PORT:-8002}:8002"
+    depends_on:
+      postgres:
         condition: service_healthy
 
   web:

@@ -43,6 +43,15 @@ export const getMetrics = () => get<Record<string, number>>("/metrics");
 export const getAdapterHealth = () => get<AdapterHealth>("/health/adapters");
 export const getToolCapabilities = () => get<ToolCapabilities>("/tools/capabilities");
 
+// --- Observer (v1.3, via control-plane proxy) ---
+export type ObserverWindow = "1h" | "24h" | "7d";
+export const getObserverScores = (window: ObserverWindow = "24h") =>
+  get<ObserverScores>(`/observer/scores?window=${window}`);
+export const getObserverClusters = (window: ObserverWindow = "24h") =>
+  get<ObserverClusters>(`/observer/clusters?window=${window}`);
+export const getObserverRecommendations = (window: ObserverWindow = "24h") =>
+  get<ObserverRecommendations>(`/observer/recommendations?window=${window}`);
+
 // --- Types ---
 export interface CreateTaskBody {
   goal: string;
@@ -175,4 +184,53 @@ export interface AdapterHealth {
 
 export interface ToolCapabilities {
   tools: Record<string, Record<string, boolean>>;
+}
+
+// --- Observer types ---
+export interface ObserverScores {
+  scores: {
+    overall_score: number;
+    workflow_score: number;
+    tool_score: number;
+    memory_score: number;
+    planner_score: number;
+    retry_health: number;
+  };
+  kpis: Record<string, number>;
+  tool_detail: Record<string, number>;
+  delta: Record<string, number> | null;
+  window: string;
+  requested_window: string;
+  samples: number;
+  node_samples: number;
+}
+
+export interface ObserverCluster {
+  name: string;
+  count: number;
+  count_last_10min: number;
+  cluster_strength: number;
+  severity: string;
+  last_seen: string | null;
+}
+
+export interface ObserverClusters {
+  clusters: ObserverCluster[];
+  window: string;
+}
+
+export interface ObserverRecommendation {
+  id: string;
+  severity: string;
+  target: string;
+  message: string;
+  metric_value: number;
+  threshold: number;
+  linked_kpis: string[];
+  window: string;
+}
+
+export interface ObserverRecommendations {
+  recommendations: ObserverRecommendation[];
+  window: string;
 }

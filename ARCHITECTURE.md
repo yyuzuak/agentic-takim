@@ -344,7 +344,7 @@ Bu spesifikasyon olgunlaştığında sistem şunları sağlayacak:
 - ✔ Dinamik replan, retry, durable checkpoint
 - ✔ Bütçe yönetimi + güvenlik/izolasyon + human-in-the-loop
 
-> **Durum (v1.2):** Sistem çalışıyor. Tool Runtime (port 8001) + Control-plane (port 8000) + Agent Studio UI (port 3000) prodüksiyona hazır. DAG yürütme, tool adapter, circuit breaker, compensation ledger ve human-in-the-loop tamamen implemente edildi.
+> **Durum (v1.3):** Sistem çalışıyor. Tool Runtime (8001) + Control-plane (8000) + Agent Studio UI (3000) + Observer (8002) prodüksiyona hazır. DAG yürütme, tool adapter, circuit breaker, compensation ledger, human-in-the-loop ve observability plane (KPI/score/cluster/recommendation) tamamen implemente edildi.
 
 ---
 
@@ -364,4 +364,52 @@ Bu spesifikasyon olgunlaştığında sistem şunları sağlayacak:
 - **Tailwind + shadcn/ui**: dark theme CSS vars, `globals.css`, `cn()` utility
 - **TanStack Query**: typed API layer (`lib/api.ts`), `refetchInterval` polling (2–4s)
 - **React Flow (`@xyflow/react`)**: otomatik topolojik layout (BFS layering), animasyonlu kenarlar, inline Onayla butonu
-- **5 ekran**: Studio (goal input + 3-kolon task grid), Görevler listesi, Task Detail (DAG|Timeline split view), Tool Center (adapter health + capabilities), Hafıza Explorer (recall + tablo), Observer (metrik kartlar + v1.3 stub)
+- **5 ekran**: Studio (goal input + 3-kolon task grid), Görevler listesi, Task Detail (DAG|Timeline split view), Tool Center (adapter health + capabilities), Hafıza Explorer (recall + tablo), Observer Dashboard (v1.3, §16)
+
+---
+
+## 16. v1.3 Observer — Observability Plane `[SPEC v1.3.0]`
+
+Observer, sistemin kendi davranışını ölçen **post-hoc analytics plane**'idir. Execution
+path'e dahil değildir — ayrı bir sidecar servistir (`services/observer`, port 8002).
+
+```
+Execution Plane          Observability Plane       Control Plane
+  Planner                  Observer :8002 ──────►  /observer/* proxy
+  Tool Runtime  ──► DB ──► (read-only)              (auth + routing)
+  PostgreSQL                                               │
+                                                    Agent Studio Dashboard
+```
+
+### Invariants (değişmez)
+1. **Read-only:** Observer execution state'e YAZMAZ; dış çağrı (NATS/HTTP POST) YAPMAZ.
+2. **Bounded queries:** Her sorgu window'a bağlı + `LIMIT 10k`. Tek geçit `db.bounded_query()`
+   `WHERE created_at >= :since` + `LIMIT`'i otomatik enjekte eder — ham `execute()` yok.
+   `SPEC_HASH` (`observer/__init__.py`) plan dosyasının sha256'sı; drift/regression baseline.
+
+### 9 KPI (mevcut tablolardan, windowed 1h/24h/7d)
+`workflow_success_rate`, `avg_workflow_duration_s`, `planner_error_rate`, `retry_coverage`,
+`retry_pressure`, `dlq_rate`, `tool_reliability`, `memory_reuse_success`, `compensation_rate`.
+- **MIN_SAMPLES (50) fallback:** birincil örneklem azsa window büyür (1h→24h→7d).
+- **task_nodes'ta `created_at` yok** → `tasks` join, `tasks.created_at` ile window.
+
+### Scoring
+- `tool_reliability`: Bayesian smoothing (Jeffreys α=β=1) + invocation-count weighted avg.
+- `retry_health = 1/(1+retry_pressure)` (nonlinear decay).
+- `overall = 0.35·workflow + 0.30·tool + 0.20·planner + 0.15·retry_health`.
+- **Anomaly delta** (1h/7d vs 24h baseline): yalnız her iki window'da MIN_SAMPLES varsa VE
+  effective window'lar farklıysa (fallback collapse → `null`).
+
+### Clustering & Recommendations
+- Rule-based failure clusters (CIRCUIT_OPEN, RATE_LIMIT, ERP_TRANSIENT, SCHEMA_ERROR, …);
+  `cluster_strength = count_10min / unique_tasks_10min`; >3/10dk → severity escalation.
+- Advisory recommendations (eşik tabanlı) + `linked_kpis` correlation. **v1.3: pasif/görünür**;
+  planner prompt'una enjeksiyon → v1.4 (Advise fazı).
+
+### API & Cache
+- `GET /health` (auth'suz) · `/scores` · `/clusters` · `/recommendations` · `/raw` (cache bypass).
+- Service auth: `X-Internal-Token` (control-plane proxy enjekte eder).
+- In-process snapshot cache, TTL 30s, key = `sha256(endpoint + canonical_qs)`.
+
+> **v1.4'e ertelenenler:** statistical confidence layer, retry causality, cross-cluster
+> correlation, HMAC/rotating token, advisory→planner injection, cause-chain visualization.

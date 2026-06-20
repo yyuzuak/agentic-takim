@@ -2,7 +2,7 @@
 
 `atoms.dev` mantığıyla çalışan, her biri kendine has kişiliği ve skill seti olan bir **AI ajan takımı** ve onu çalıştıran **dağıtık runtime** için şablon repo. Klonla → `make setup` → tüm stack local'de ayağa kalkar.
 
-> **Durum:** v1.2 Agent Studio tamamlandı. Tailwind + React Flow DAG + TanStack Query tabanlı yeni UI; 5 ekran: Studio / Görevler / Tool Center / Hafıza / Observer. Tüm backend (v1.1 Production Connectors) ve UI prodüksiyona hazır.
+> **Durum:** v1.3 Observer & Metrics tamamlandı. Bağımsız Observer servisi (port 8002, read-only sidecar analytics plane) 9 KPI + composite skor + failure clustering + advisory öneri üretir; Agent Studio'da canlı Observer Dashboard. Sistem artık kendi davranışını ölçüyor (Observe fazı).
 
 ## Quickstart (2 dakika)
 
@@ -57,6 +57,8 @@ Web (Next.js) → Control-plane (FastAPI) → NATS (JetStream) → Agents (LangG
 | `services/control-plane` | FastAPI — routing/orkestrasyon API (Kaptan) |
 | `services/agent-runner` | LangGraph graph yürütme (durable, AsyncPostgresSaver) |
 | `services/worker` | Arka plan/tool/embedding işleri (NATS tüketici) |
+| `services/tool-runtime` | Tool adapter runtime (port 8001) — dış sistem çağrıları, circuit breaker, compensation |
+| `services/observer` | Observer (port 8002) — read-only sidecar analytics: KPI/score/cluster/recommendation |
 | `packages/schemas` | Paylaşılan sözleşmeler (ACP, Skill Contract, Registry, Events) — sistemin kalbi |
 
 ---
@@ -255,8 +257,9 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
 - [x] **v1.0 Agentic OS MVP** — Next.js web UI: görev oluştur, canlı DAG görselleştirme (node onay butonu dahil), tool invocation viewer, compensation ledger, audit timeline (event stream), hafıza tarayıcı + recall; GET /tasks list endpoint
 - [x] **v1.1 Production Connectors** — ToolAdapter Protocol (Protocol + runtime_checkable), ERPAdapter (BizimHesap/Logo/Netsis/Mikro enum, dry_run), WhatsAppAdapter (graph.facebook.com), Circuit Breaker (Redis-persisted CLOSED→OPEN→HALF_OPEN), tool-runtime HTTP API (port 8001), compensation apply endpoint; secrets katmanı (tek os.environ erişim noktası)
 - [x] **v1.2 Agent Studio** — Tailwind + shadcn/ui + React Flow DAG (otomatik topolojik layout, inline Onayla butonu, animasyonlu kenarlar) + TanStack Query polling; 5 ekran: Studio (goal input + 3-kolon grid), Görevler, Task Detail (DAG|Timeline split), Tool Center (adapter health + capabilities tablosu), Hafıza Explorer, Observer stub
+- [x] **v1.3 Observer & Metrics** — bağımsız `services/observer` (port 8002, read-only sidecar analytics plane); 9 KPI (workflow/planner/retry/dlq/tool/memory/compensation) mevcut tablolardan windowed (1h/24h/7d) hesaplama, MIN_SAMPLES cold-start fallback; weighted composite skor (Bayesian tool smoothing, nonlinear retry_health), noise-guarded anomaly delta; rule-based failure clustering (cluster_strength + severity escalation); advisory recommendations (linked_kpis); in-process cache (30s TTL); service-to-service auth (X-Internal-Token); bounded query invariant (enforced LIMIT, no full scan); canlı Observer Dashboard (6 bölüm)
 - [ ] v0.8.1 Memory Consolidation (dedup/decay/scoring/forgetting)
-- [ ] v1.3 Observer Agent — Gözcü canlı metrikler, kalite skorlama, anomali tespiti, öğrenme döngüsü; SSE endpoint (GET /tasks/{id}/stream)
+- [ ] v1.4 Observer Advise — recommendation → planner prompt injection; statistical confidence layer, retry causality, cross-cluster correlation, HMAC/rotating service auth
 - [ ] v2.0 SaaS Multi-Tenant (organizations, users, roles, billing, API keys)
 
 ---

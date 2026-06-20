@@ -365,6 +365,36 @@ async def metrics() -> dict:
     return dict(orchestrator._metrics)
 
 
+# ---------------------------------------------------------------- v1.3 -------
+# Observer proxy — control-plane sadece gateway (auth + routing). Observer pure compute.
+async def _observer_get(path: str, params: dict | None = None) -> dict:
+    import httpx
+    from .config import settings
+    url = f"{settings.observer_url}{path}"
+    headers = {"X-Internal-Token": settings.observer_internal_token}
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(url, params=params, headers=headers)
+    return r.json()
+
+
+@app.get("/observer/scores")
+async def observer_scores(window: str = "24h") -> dict:
+    """Observer composite skorları + KPI + delta. (proxy)"""
+    return await _observer_get("/scores", {"window": window})
+
+
+@app.get("/observer/clusters")
+async def observer_clusters(window: str = "24h") -> dict:
+    """Observer failure cluster listesi. (proxy)"""
+    return await _observer_get("/clusters", {"window": window})
+
+
+@app.get("/observer/recommendations")
+async def observer_recommendations(window: str = "24h") -> dict:
+    """Observer advisory öneriler. (proxy)"""
+    return await _observer_get("/recommendations", {"window": window})
+
+
 @app.get("/")
 async def root() -> dict:
     return {"name": "Agentic Takım", "docs": "/docs", "health": "/health", "agents": "/agents", "tasks": "POST /tasks"}
