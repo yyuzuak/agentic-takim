@@ -131,10 +131,12 @@ def infer_type(goal: str) -> str:
         return "fulfillment"
     if any(w in g for w in ["eleştir", "elestir", "değerlendir", "degerlendir", "gözden geçir", "critique", "review", "consensus", "uzlaş"]):
         return "collab"
-    if any(w in g for w in ["uygulama", "app", "web sitesi", "website", "nextjs", "next.js", "dashboard", "gösterge paneli"]):
-        return "app-build"
+    # research, app-build'in ÖNÜNDE: "X sistemini araştır" → research kazanır
     if any(w in g for w in ["araştır", "arastir", "analiz", "rapor", "research", "incele"]):
         return "research"
+    if any(w in g for w in ["uygulama", "app", "web sitesi", "website", "nextjs", "next.js",
+                            "dashboard", "gösterge paneli", "sistem", "site", "platform", "panel"]):
+        return "app-build"
     return "build"
 
 

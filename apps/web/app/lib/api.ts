@@ -216,11 +216,16 @@ export interface Events {
 }
 
 export interface MemoryEntry {
-  id: string;
+  task_id: string;
   goal: string;
-  skill: string;
+  workflow_type: string | null;
+  outcome: string;
+  status: string;
+  provider: string | null;
+  retrieval_count: number;
   reuse_success_count: number;
-  created_at: string | null;
+  refinement_summary: unknown;
+  parent_memory_ids: unknown;
 }
 
 export interface MemoryList {
@@ -228,8 +233,17 @@ export interface MemoryList {
   entries: MemoryEntry[];
 }
 
+export interface RecallHit {
+  id: string;
+  score: number;
+  task_id?: string;
+  goal?: string;
+  outcome?: string;
+  workflow_type?: string;
+}
+
 export interface RecallResult {
-  hits: Array<{ goal: string; skill: string; score: number; reuse_success_count: number }>;
+  hits: RecallHit[];
   avg_score: number;
   confidence: string;
 }

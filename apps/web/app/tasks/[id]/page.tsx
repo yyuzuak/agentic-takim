@@ -105,10 +105,25 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
       {/* Artifacts — ajanların ürettiği gerçek çıktılar (v2.0-A) */}
       {(artifactData?.count ?? 0) > 0 && <ArtifactsPanel artifacts={artifactData!.artifacts} taskId={id} />}
 
-      {/* v2.1 Workspace Runtime — artifact'ları doğrulanmış repo'ya çevir + Build Explorer */}
-      {(artifactData?.artifacts.some(a => (a.content as { files?: unknown } | null)?.files)) && (
-        <BuildsPanel taskId={id} />
-      )}
+      {/* v2.1 Workspace Runtime — yalnız stack-uyumlu (Next.js+Prisma) artifact'larda */}
+      {(() => {
+        const arts = artifactData?.artifacts ?? [];
+        const hasFiles = arts.some(a => (a.content as { files?: unknown } | null)?.files);
+        const stackCompatible = arts.some(a => {
+          const files = (a.content as { files?: Record<string, unknown> } | null)?.files;
+          return files && Object.keys(files).some(p => p.startsWith("app/") || p.startsWith("prisma/"));
+        });
+        if (stackCompatible) return <BuildsPanel taskId={id} />;
+        if (hasFiles) return (
+          <Card className="p-4 border-warning/30 bg-warning/[0.06]">
+            <p className="text-sm">
+              Bu görev Next.js+Prisma artifact'ı üretmedi (farklı stack) — repo üretimi için
+              "uygulama" hedefiyle deneyin, ör. <span className="font-mono">"… uygulaması yap"</span>.
+            </p>
+          </Card>
+        );
+        return null;
+      })()}
 
       {/* Tool Invocations */}
       {(toolData?.count ?? 0) > 0 && (

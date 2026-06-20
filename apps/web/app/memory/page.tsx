@@ -24,7 +24,7 @@ export default function MemoryPage() {
     recall.mutate(query.trim());
   }
 
-  const results = (recall.data as { results?: Array<{ goal?: string; content?: string; skill?: string; score?: number }> } | undefined)?.results;
+  const hits = recall.data?.hits ?? [];
 
   return (
     <div>
@@ -59,21 +59,22 @@ export default function MemoryPage() {
           {recall.isSuccess && (
             <div className="mt-4 p-4 rounded-lg bg-muted/50 border border-border">
               <p className="text-xs text-muted-foreground mb-2">
-                "{submitted}" için {results?.length ?? 0} sonuç:
+                "{submitted}" için {hits.length} sonuç
+                {recall.data && hits.length > 0 && <span> · ort. skor {recall.data.avg_score} · güven {recall.data.confidence}</span>}:
               </p>
               <div className="flex flex-col gap-2">
-                {results?.map((r, i) => (
+                {hits.map((r, i) => (
                   <div key={i} className="flex items-start gap-3">
                     <Badge variant="info" className="shrink-0 tabular-nums">
-                      {r.score ? r.score.toFixed(2) : "—"}
+                      {typeof r.score === "number" ? r.score.toFixed(2) : "—"}
                     </Badge>
                     <div className="min-w-0">
-                      <p className="text-sm truncate">{r.goal ?? r.content ?? "—"}</p>
-                      {r.skill && <p className="text-xs text-muted-foreground">{r.skill}</p>}
+                      <p className="text-sm truncate">{r.goal ?? "—"}</p>
+                      {r.workflow_type && <p className="text-xs text-muted-foreground">{r.workflow_type}</p>}
                     </div>
                   </div>
                 ))}
-                {!results?.length && <p className="text-sm text-muted-foreground">Sonuç bulunamadı.</p>}
+                {hits.length === 0 && <p className="text-sm text-muted-foreground">Sonuç bulunamadı.</p>}
               </div>
             </div>
           )}
@@ -87,18 +88,18 @@ export default function MemoryPage() {
           <THead>
             <tr>
               <TH>Hedef</TH>
-              <TH>Skill</TH>
-              <TH className="text-right">Başarı</TH>
+              <TH>Tip</TH>
+              <TH className="text-right">Sonuç</TH>
               <TH className="text-right">Tekrar</TH>
             </tr>
           </THead>
           <TBody>
             {list.entries.map((e, i) => {
-              const ok = (e as { success?: boolean }).success;
+              const ok = e.outcome === "done";
               return (
                 <TR key={i}>
                   <TD className="max-w-xs"><span className="block truncate">{e.goal}</span></TD>
-                  <TD className="text-muted-foreground">{e.skill ?? "—"}</TD>
+                  <TD className="text-muted-foreground">{e.workflow_type ?? "—"}</TD>
                   <TD className="text-right">
                     {ok
                       ? <CheckCircle2 className="w-4 h-4 text-success inline" />
