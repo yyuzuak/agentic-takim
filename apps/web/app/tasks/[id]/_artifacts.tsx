@@ -86,22 +86,11 @@ const KIND_ICON: Record<string, typeof FileText> = {
   draft: FileText, consensus: Boxes,
 };
 
-export function ArtifactsPanel({ artifacts, taskId }: { artifacts: Artifact[]; taskId?: string }) {
+export function ArtifactsPanel({ artifacts }: { artifacts: Artifact[]; taskId?: string }) {
   if (artifacts.length === 0) return null;
-  const hasFiles = artifacts.some(a => (a.content as { files?: unknown } | null)?.files);
   return (
     <Card className="p-4">
       <h2 className="text-sm font-semibold mb-3">Üretilen Çıktılar ({artifacts.length})</h2>
-      {hasFiles && taskId && (
-        <div className="mb-4 rounded-lg border border-info/30 bg-info/[0.06] p-3">
-          <p className="text-xs text-muted-foreground mb-1">
-            Bu çıktıyı çalıştırılabilir repo'ya çevir (v2.0-B App Builder):
-          </p>
-          <code className="block text-xs font-mono text-foreground break-all">
-            python3 scripts/assemble_repo.py {taskId}
-          </code>
-        </div>
-      )}
       <div className="flex flex-col gap-3">
         {artifacts.map((a, i) => {
           const Icon = KIND_ICON[a.kind ?? ""] ?? FileText;

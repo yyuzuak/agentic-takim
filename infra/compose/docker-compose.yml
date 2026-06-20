@@ -16,6 +16,7 @@ volumes:
   redis-data:
   nats-data:
   qdrant-data:
+  builder-workspaces:
 
 services:
   # ---------------------------------------------------------------- core ----
@@ -84,6 +85,7 @@ services:
       MEMORY_AVAILABLE: ${MEMORY_AVAILABLE:-false}
       OBSERVABILITY_AVAILABLE: ${OBSERVABILITY_AVAILABLE:-false}
       OBSERVER_INTERNAL_TOKEN: ${OBSERVER_INTERNAL_TOKEN:-dev-internal-token}
+      BUILDER_URL: ${BUILDER_URL:-http://builder:8003}
     ports:
       - "${CONTROL_PLANE_PORT:-8000}:8000"
     depends_on:
@@ -155,6 +157,25 @@ services:
       nats:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # v2.1 — Builder: artifact → doğrulanmış repo (assemble + validate + persist). exec YOK.
+  builder:
+    build:
+      context: ../..
+      dockerfile: services/builder/Dockerfile
+    profiles: ["core"]
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      CONTROL_PLANE_URL: http://control-plane:8000
+      WORKSPACES_DIR: /workspaces
+    ports:
+      - "${BUILDER_PORT:-8003}:8003"
+    volumes:
+      - builder-workspaces:/workspaces
+    depends_on:
+      postgres:
         condition: service_healthy
 
   # v1.3 — Observer: post-hoc analytics plane (read-only). Execution path'e dahil değil.

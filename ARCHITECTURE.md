@@ -529,3 +529,45 @@ Her app-builder skill ayrık path namespace'ine yazar (prompt dayatır, assemble
 > Tag: `v2.0b-app-builder`. Doğrulama: B1–B10 (assemble + validator + npm install/prisma/dev +
 > validator negatif + cold-start + v2.0-A regresyon) yeşil.
 > Sonraki: v2.1 (runtime workspace), v2.2 (build sandbox), v2.3 (live preview).
+
+---
+
+## 20. v2.1 Workspace Runtime (build = task'tan türeyen kaynak)
+
+v2.0-B'de assembly/validation host CLI'ydı (internal tool). v2.1 bunu **runtime'a** taşır:
+bağımsız `services/builder` (port 8003), UI'dan tetiklenir, kalıcı workspace + izlenebilir build
+kaydı üretir. **Productization boundary**: internal tool → platform.
+
+### Servis sınırı (kesin)
+`services/builder` = **assemble + validate + persist** (deterministik). **Exec YOK.** Gerçek
+`npm install/build/dev` → v2.2 `services/sandbox` (ayrı). Bu sınır builder'ı şişmekten korur.
+
+### Build = kaynak (resource)
+```
+Task ├─ Build #1 ├─ Build #2 └─ Build #3
+```
+**Üç kimlik:** `build_fingerprint` = içerik hash'i (task'tan bağımsız → cross-task cache/diff;
+`sha256(sorted(artifact_hashes)+assembler_ver+validator_ver)`), `build_id` = kayıt handle'ı
+(`bld_<uuid>`), `build_number` = task içi sayaç (UI "Build #N"). **Idempotency:** dedupe
+(task_id, fingerprint) → aynı içerikle 2. build mevcut kaydı döner.
+
+### Build Manifest — `.build_manifest.json`
+Workspace kökünde; **dosya envanteri dahil** (`files: [{path, sha256, size}]`). File tree DB'den
+değil manifest'ten gelir → hızlı + v2.2/v2.3 diff/cache/comparison temeli. DAG snapshot +
+validator_version + validator_result DB'de izlenebilirlik için.
+
+### Akış & bileşenler
+```
+UI "Repo Üret" → control-plane POST /tasks/{id}/build (proxy) → builder
+  builder: artifact çek (control-plane API) → assemble → validate (sürümlü) → workspace yaz
+           → manifest + build kaydı (builds tablosu, migration 0012)
+UI Workspace Explorer: Build #N + validator rozeti+sürüm + fingerprint + dosya ağacı (manifest)
+                       + içerik (GET /builds/{id}/file)
+```
+- `services/builder/builder/{assembler,validator,snapshot,api,db}.py`; `assembler`/`validator`
+  v2.0-B logic'inin canonical runtime portu (host `scripts/*` v2.0-B CLI olarak kalır).
+- Workspace: named volume `builder-workspaces` → `/workspaces/<build_id>/`.
+
+> Tag: `v2.1-workspace-runtime`. Doğrulama: C1–C8 (build, dedupe/reproducibility, manifest
+> envanteri, validator versioning, Workspace Explorer, v2.0-B host script regresyon) yeşil.
+> Sonraki: v2.2 sandbox (gerçek build) → v2.3 live preview.

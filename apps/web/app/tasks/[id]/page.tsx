@@ -7,6 +7,7 @@ import {
   type NodeDetail,
 } from "../../lib/api";
 import { ArtifactsPanel } from "./_artifacts";
+import { BuildsPanel } from "./_builds";
 import { StatusBadge } from "../../components/status-badge";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -102,6 +103,11 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
 
       {/* Artifacts — ajanların ürettiği gerçek çıktılar (v2.0-A) */}
       {(artifactData?.count ?? 0) > 0 && <ArtifactsPanel artifacts={artifactData!.artifacts} taskId={id} />}
+
+      {/* v2.1 Workspace Runtime — artifact'ları doğrulanmış repo'ya çevir + Build Explorer */}
+      {(artifactData?.artifacts.some(a => (a.content as { files?: unknown } | null)?.files)) && (
+        <BuildsPanel taskId={id} />
+      )}
 
       {/* Tool Invocations */}
       {(toolData?.count ?? 0) > 0 && (

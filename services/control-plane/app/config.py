@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     tool_runtime_url: str = "http://tool-runtime:8001"  # v1.1-b: HTTP API proxy
     observer_url: str = "http://observer:8002"  # v1.3: analytics plane proxy
     observer_internal_token: str = "dev-internal-token"  # service-to-service auth
+    builder_url: str = "http://builder:8003"  # v2.1: workspace runtime proxy
 
 
 settings = Settings()

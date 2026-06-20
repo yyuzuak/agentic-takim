@@ -32,6 +32,14 @@ export const getTaskTools = (id: string) => get<ToolInvocations>(`/tasks/${id}/t
 export const getTaskCompensations = (id: string) => get<Compensations>(`/tasks/${id}/compensations`);
 export const getTaskEvents = (id: string) => get<Events>(`/tasks/${id}/events`);
 export const getTaskArtifacts = (id: string) => get<Artifacts>(`/tasks/${id}/artifacts`);
+
+// --- v2.1 Workspace Runtime (builder, via control-plane proxy) ---
+export const buildRepo = (taskId: string, stack = "nextjs-prisma-sqlite") =>
+  post<BuildRecord>(`/tasks/${taskId}/build?stack=${stack}`);
+export const getTaskBuilds = (taskId: string) => get<BuildList>(`/tasks/${taskId}/builds`);
+export const getBuild = (buildId: string) => get<BuildDetail>(`/builds/${buildId}`);
+export const getBuildFile = (buildId: string, path: string) =>
+  get<{ path: string; content: string }>(`/builds/${buildId}/file?path=${encodeURIComponent(path)}`);
 export const getMemory = () => get<MemoryList>(`/memory`);
 export const recallMemory = (goal: string) => get<RecallResult>(`/memory/recall?goal=${encodeURIComponent(goal)}`);
 export const applyCompensation = (taskId: string, execId: string, actor = "studio") =>
@@ -153,6 +161,44 @@ export interface Artifacts {
   task_id: string;
   count: number;
   artifacts: Artifact[];
+}
+
+// --- v2.1 Build types ---
+export interface BuildRecord {
+  build_id: string;
+  build_fingerprint: string;
+  task_id: string;
+  build_number: number;
+  stack: string;
+  status: string; // validated | failed
+  assembler_version: string;
+  validator_version: string;
+  validator_result: { version: string; status: string; hard: number; soft: number; issues: BuildIssue[] } | null;
+  file_count: number;
+  created_at: string | null;
+  deduped?: boolean;
+}
+
+export interface BuildIssue {
+  level: string; // hard | soft
+  cat: string;
+  file: string;
+  msg: string;
+}
+
+export interface BuildFile {
+  path: string;
+  sha256: string;
+  size: number;
+}
+
+export interface BuildDetail extends BuildRecord {
+  files: BuildFile[];
+}
+
+export interface BuildList {
+  count: number;
+  builds: BuildRecord[];
 }
 
 export interface ContextEvent {

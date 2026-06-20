@@ -424,6 +424,49 @@ async def observer_recommendations(window: str = "24h") -> dict:
     return await _observer_get("/recommendations", {"window": window})
 
 
+# ---------------------------------------------------------------- v2.1 -------
+# Builder proxy — artifact → doğrulanmış repo (assemble + validate + persist).
+@app.post("/tasks/{task_id}/build")
+async def build_repo(task_id: str, stack: str = "nextjs-prisma-sqlite") -> dict:
+    """Workspace Runtime: task artifact'larını çalıştırılabilir repo'ya çevirir. (proxy)"""
+    import httpx
+    from .config import settings
+    url = f"{settings.builder_url}/build/{task_id}"
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(url, params={"stack": stack})
+    return r.json()
+
+
+@app.get("/tasks/{task_id}/builds")
+async def list_builds(task_id: str) -> dict:
+    """Task'a ait build kayıtları. (proxy)"""
+    import httpx
+    from .config import settings
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(f"{settings.builder_url}/builds", params={"task_id": task_id})
+    return r.json()
+
+
+@app.get("/builds/{build_id}")
+async def get_build(build_id: str) -> dict:
+    """Build kaydı + dosya ağacı (manifest). (proxy)"""
+    import httpx
+    from .config import settings
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(f"{settings.builder_url}/builds/{build_id}")
+    return r.json()
+
+
+@app.get("/builds/{build_id}/file")
+async def get_build_file(build_id: str, path: str) -> dict:
+    """Build içindeki tek dosya içeriği. (proxy)"""
+    import httpx
+    from .config import settings
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(f"{settings.builder_url}/builds/{build_id}/file", params={"path": path})
+    return r.json()
+
+
 @app.get("/")
 async def root() -> dict:
     return {"name": "Agentic Takım", "docs": "/docs", "health": "/health", "agents": "/agents", "tasks": "POST /tasks"}
