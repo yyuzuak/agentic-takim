@@ -251,6 +251,24 @@ async def get_context(task_id: str, session: AsyncSession = Depends(get_session)
     return {"task_id": task_id, "version": snap.version, "snapshot": snap.snapshot}
 
 
+@app.get("/tasks/{task_id}/artifacts")
+async def get_artifacts(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """Ajanların ürettiği artifact'ları (v2.0-A gerçek çıktılar) düzleştirilmiş döner."""
+    snap = await session.get(TaskContextSnapshot, task_id)
+    if snap is None:
+        return {"task_id": task_id, "count": 0, "artifacts": []}
+    artifacts = []
+    for agent, adata in (snap.snapshot.get("agents") or {}).items():
+        for node_key, art in (adata.get("artifacts") or {}).items():
+            artifacts.append({
+                "node_key": node_key,
+                "agent": agent,
+                "kind": (art or {}).get("kind"),
+                "content": (art or {}).get("content"),
+            })
+    return {"task_id": task_id, "count": len(artifacts), "artifacts": artifacts}
+
+
 @app.get("/tasks/{task_id}/events")
 async def get_events(task_id: str, session: AsyncSession = Depends(get_session)) -> dict:
     rows = (await session.execute(

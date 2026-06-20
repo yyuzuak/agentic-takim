@@ -445,3 +445,44 @@ Agent Studio (`apps/web`) admin-panel'den premium SaaS dashboard'a yükseltildi.
   Cell) + 3-window (1h/24h/7d) overall-score LineChart. Tema değişince renkler yeniden çözülür.
 
 > Tag: `v1.3.1-premium-ui`. Backend roadmap'i etkilemez; v1.4 Observer Advise sırasında kalır.
+
+---
+
+## 18. v2.0-A Real Agents (LLM-powered reasoning)
+
+Bu milestone'a kadar `agent-runner` reasoning düğümleri **stub**'tı (`"<skill> draft for: <goal>"`).
+v2.0-A bunu gerçek LLM çağrısına dönüştürür — ajanlar artık gerçek içerik (mimari, kod, PRD) üretir.
+**Henüz dosya yazma/build yok**; sadece artifact'lar (v2.0-B+ workspace ekler).
+
+### Akış
+```
+ACP.TASK.CREATED → agent-runner consumer.handle()
+  → _collaborate(task)  [async]
+      ├─ LLM kapalı VEYA test bayrağı → _stub_collaborate (deterministik, eski davranış)
+      └─ aksi halde → _llm_collaborate → llm.complete() (LiteLLM httpx)
+            producer    : upstream artifact'lar + skill prompt → JSON artifact
+            critic      : hedef artifact → {score, issues, suggestions}
+            synthesizer : drafts + critiques → consensus
+```
+
+### Bileşenler
+- **`runner/llm.py`**: LiteLLM `/v1/chat/completions` httpx client (planner.py deseni).
+  `LLM_AVAILABLE` false veya her hata/timeout → `None` (çağıran stub'a düşer).
+- **`runner/prompts.py`**: skill→uzman sistem prompt'u + JSON çıktı şeması registry
+  (generic fallback). `build_producer/critic/synthesizer_messages`; upstream artifact'lar
+  "ÖNCEKİ ADIMLARIN ÇIKTILARI" bloğu olarak kullanıcı mesajına enjekte (context passing).
+- **`consumer.py` `_collaborate`**: artık `async`; test-mode gating + 3 rol + fallback.
+
+### Invariant'lar (korunur)
+- **Test-mode gating:** `stable_output/scores/base_score/score_step/fail_*` girdilerinden biri
+  varsa stub yoluna gidilir → mevcut v0.6 retry/DLQ + v0.7 convergence acceptance'ları **aynen geçer**.
+- **Graceful degradation:** Anahtar yoksa/LLM düşse bile sistem çökmez; stub üretir.
+- **Provenance:** critic producer artifact'ını değiştirmez; single-writer snapshot (v0.7).
+
+### Görüntüleme
+- `GET /tasks/{id}/artifacts` (control-plane) — snapshot'tan düzleştirilmiş artifact listesi.
+- Agent Studio Task Detail → **Artifacts paneli** (`tasks/[id]/_artifacts.tsx`): markdown,
+  `files` kod blokları (collapsible), kararlar; stub içerik "stub" rozetiyle işaretlenir.
+
+> Tag: `v2.0a-real-agents`. Önkoşul: gerçek LLM doğrulaması için `.env`'e API anahtarı.
+> Sonraki: v2.0-B (workspace + dosya yazma + app-builder ajanları).

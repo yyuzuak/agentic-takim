@@ -31,6 +31,7 @@ export const approveNode = (id: string, nodeKey: string, actor = "studio") =>
 export const getTaskTools = (id: string) => get<ToolInvocations>(`/tasks/${id}/tools`);
 export const getTaskCompensations = (id: string) => get<Compensations>(`/tasks/${id}/compensations`);
 export const getTaskEvents = (id: string) => get<Events>(`/tasks/${id}/events`);
+export const getTaskArtifacts = (id: string) => get<Artifacts>(`/tasks/${id}/artifacts`);
 export const getMemory = () => get<MemoryList>(`/memory`);
 export const recallMemory = (goal: string) => get<RecallResult>(`/memory/recall?goal=${encodeURIComponent(goal)}`);
 export const applyCompensation = (taskId: string, execId: string, actor = "studio") =>
@@ -139,6 +140,19 @@ export interface Compensation {
 export interface Compensations {
   count: number;
   compensations: Compensation[];
+}
+
+export interface Artifact {
+  node_key: string;
+  agent: string;
+  kind: string | null;
+  content: Record<string, unknown> | null;
+}
+
+export interface Artifacts {
+  task_id: string;
+  count: number;
+  artifacts: Artifact[];
 }
 
 export interface ContextEvent {

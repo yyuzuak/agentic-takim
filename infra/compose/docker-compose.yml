@@ -108,6 +108,11 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       NATS_URL: ${NATS_URL}
+      # v2.0-A: gerçek ajan reasoning için LiteLLM
+      LITELLM_URL: ${LITELLM_URL}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet}
+      LLM_AVAILABLE: ${LLM_AVAILABLE:-false}
     depends_on:
       postgres:
         condition: service_healthy

@@ -16,20 +16,51 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from agentic_schemas.acp.v1 import ErrorCode, ErrorMessage, ResultMessage, ResultPayload, TaskMessage
 from agentic_schemas.events.v1 import Subject
 
+from . import llm, prompts
 from .graph import build_graph
+
+# Test/deterministik mod bayrakları — biri varsa stub yoluna gidilir (mevcut
+# retry/DLQ/convergence acceptance'larını KORUR; gerçek LLM bunları bozmaz).
+_TEST_FLAGS = ("stable_output", "scores", "base_score", "score_step",
+               "fail_node", "fail_times", "fail_at_attempt", "fail_percentage")
 
 
 def _artifact_content(snapshot: dict, agent: str, node_key: str) -> dict | None:
     return (snapshot.get("agents", {}).get(agent, {}).get("artifacts", {}).get(node_key) or {}).get("content")
 
 
-def _collaborate(task) -> list[dict]:
-    """role→handler. Deterministik stub; LLM yok (v0.4 kısıtı). Üretilen context event'leri döner.
+def _is_test_mode(inputs: dict) -> bool:
+    return any(k in inputs for k in _TEST_FLAGS)
 
-    - producer: artifact.created (draft)
-    - critic:  producer'ı DEĞİŞTİRMEZ, critique üretir
-    - synthesizer: producer artifact'ları + critique'leri birleştirir → consensus + decision
-    """
+
+def _parse_json(raw: str | None):
+    """LLM çıktısından JSON çıkar (markdown fence'leri tolere eder). Başarısızsa None."""
+    if not raw:
+        return None
+    s = raw.strip()
+    if s.startswith("```"):
+        s = s.split("```", 2)[1] if s.count("```") >= 2 else s
+        if s.startswith("json"):
+            s = s[4:]
+        s = s.strip("` \n")
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
+
+
+def _upstream(snapshot: dict, history: list) -> list[dict]:
+    """Bağımlı düğümlerin artifact içerikleri (context passing)."""
+    out = []
+    for dep in history:
+        content = _artifact_content(snapshot, dep["agent"], dep["node_key"])
+        if content is not None:
+            out.append({"node_key": dep["node_key"], "agent": dep["agent"], "content": content})
+    return out
+
+
+def _stub_collaborate(task) -> list[dict]:
+    """Deterministik stub (LLM yoksa / test modunda). Eski v0.4 davranışı — aynen korunur."""
     p = task.payload
     role, agent, goal = p.node_role, task.to_agent, p.goal
     snapshot, history = p.snapshot or {}, p.node_history or []
@@ -37,7 +68,6 @@ def _collaborate(task) -> list[dict]:
     depth = int(inputs.get("refine_depth", 0))
 
     if role == "critic":
-        # score: scores listesi varsa onu kullan, yoksa base + step*depth (deterministik test)
         scores = inputs.get("scores")
         if isinstance(scores, list) and scores:
             score = float(scores[depth] if depth < len(scores) else scores[-1])
@@ -65,12 +95,68 @@ def _collaborate(task) -> list[dict]:
             {"type": "decision.made", "agent": agent, "payload": {"decision": f"{agent} nihai çıktıyı sentezledi"}},
         ]
 
-    # producer (varsayılan) — revizyonlarda içerik depth ile değişir (fingerprint değişir);
-    # stable_output=true ise sabit (convergence/fingerprint testi).
     stable = bool(inputs.get("stable_output", False))
     text = f"{task.skill} draft for: {goal}" + ("" if stable else f" rev{depth}")
     return [{"type": "artifact.created", "agent": agent, "payload": {
         "kind": "draft", "content": {"text": text}}}]
+
+
+async def _llm_collaborate(task) -> list[dict]:
+    """Gerçek ajan reasoning (v2.0-A). Her LLM hatasında ilgili rol stub'a düşer."""
+    p = task.payload
+    role, agent, goal, skill = p.node_role, task.to_agent, p.goal, task.skill
+    snapshot, history = p.snapshot or {}, p.node_history or []
+
+    if role == "critic":
+        events = []
+        for dep in history:
+            content = _artifact_content(snapshot, dep["agent"], dep["node_key"])
+            if content is None:
+                continue
+            parsed = _parse_json(await llm.complete(prompts.build_critic_messages(skill, goal, content)))
+            if not isinstance(parsed, dict):
+                return _stub_collaborate(task)  # fallback: tüm critic deterministik
+            events.append({"type": "critique", "agent": agent, "payload": {
+                "target_node": dep["node_key"],
+                "score": round(float(parsed.get("score", 0.7)), 4),
+                "issues": parsed.get("issues", []),
+                "suggestions": parsed.get("suggestions", []),
+            }})
+        return events
+
+    if role == "synthesizer":
+        drafts = {d["node_key"]: _artifact_content(snapshot, d["agent"], d["node_key"]) for d in history}
+        critiques = [c for a in snapshot.get("agents", {}).values() for c in a.get("critiques", [])]
+        parsed = _parse_json(await llm.complete(prompts.build_synthesizer_messages(skill, goal, drafts, critiques)))
+        if not isinstance(parsed, dict):
+            return _stub_collaborate(task)
+        return [
+            {"type": "artifact.created", "agent": agent, "payload": {"kind": "consensus", "content": parsed}},
+            {"type": "decision.made", "agent": agent, "payload": {"decision": f"{agent} nihai çıktıyı sentezledi"}},
+        ]
+
+    # producer
+    parsed = _parse_json(await llm.complete(prompts.build_producer_messages(skill, goal, _upstream(snapshot, history))))
+    if not isinstance(parsed, dict):
+        return _stub_collaborate(task)
+    return [{"type": "artifact.created", "agent": agent, "payload": {"kind": "draft", "content": parsed}}]
+
+
+async def _collaborate(task) -> list[dict]:
+    """role→handler. LLM varsa gerçek reasoning; yoksa/test modunda deterministik stub.
+
+    - producer: artifact.created (gerçek içerik veya stub draft)
+    - critic:  producer'ı DEĞİŞTİRMEZ, critique üretir (provenance korunur)
+    - synthesizer: artifact'ları + critique'leri birleştirir → consensus + decision
+    """
+    inputs = task.payload.inputs or {}
+    if not llm.llm_enabled() or _is_test_mode(inputs):
+        return _stub_collaborate(task)
+    try:
+        return await _llm_collaborate(task)
+    except Exception as e:  # noqa: BLE001 — LLM yolu asla task'ı kırmaz
+        print(f"[agent-runner] ⚠ LLM reasoning hatası, stub'a düşülüyor: {e}")
+        return _stub_collaborate(task)
 
 NATS_URL = os.environ.get("NATS_URL", "nats://nats:4222")
 DB_DSN = os.environ.get("DATABASE_URL", "postgresql://agentic:agentic_dev_pw@postgres:5432/agentic_os")
@@ -131,7 +217,7 @@ async def run() -> None:
                     {"goal": task.payload.goal, "steps": []},
                     {"configurable": {"thread_id": str(task.message_id)}},
                 )
-                events = _collaborate(task)  # role→handler: producer/critic/synthesizer
+                events = await _collaborate(task)  # role→handler: producer/critic/synthesizer
                 result = ResultMessage(
                     from_agent=task.to_agent, to_agent="kaptan", trace_id=task.trace_id,
                     in_reply_to=task.message_id, skill=task.skill, timestamp=int(time.time()),

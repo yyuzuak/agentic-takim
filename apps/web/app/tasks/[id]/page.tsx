@@ -2,10 +2,11 @@
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getTask, getTaskTools, getTaskCompensations, getTaskEvents,
+  getTask, getTaskTools, getTaskCompensations, getTaskEvents, getTaskArtifacts,
   approveNode, approveTask, applyCompensation,
   type NodeDetail,
 } from "../../lib/api";
+import { ArtifactsPanel } from "./_artifacts";
 import { StatusBadge } from "../../components/status-badge";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -32,6 +33,9 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
   });
   const { data: evData } = useQuery({
     queryKey: ["task-events", id], queryFn: () => getTaskEvents(id), refetchInterval: 2000,
+  });
+  const { data: artifactData } = useQuery({
+    queryKey: ["task-artifacts", id], queryFn: () => getTaskArtifacts(id), refetchInterval: 2000,
   });
 
   const approveMut = useMutation({ mutationFn: (key: string) => approveNode(id, key), onSuccess: refetch });
@@ -95,6 +99,9 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
           </div>
         </Card>
       </div>
+
+      {/* Artifacts — ajanların ürettiği gerçek çıktılar (v2.0-A) */}
+      {(artifactData?.count ?? 0) > 0 && <ArtifactsPanel artifacts={artifactData!.artifacts} />}
 
       {/* Tool Invocations */}
       {(toolData?.count ?? 0) > 0 && (
