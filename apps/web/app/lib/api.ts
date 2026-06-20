@@ -202,9 +202,12 @@ export interface BuildList {
 }
 
 export interface ContextEvent {
-  event_type: string;
+  seq: number;
+  type: string;
+  node_key: string | null;
+  agent: string | null;
   payload: Record<string, unknown>;
-  created_at: string;
+  created_at: string | null;
 }
 
 export interface Events {

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getTask, getTaskTools, getTaskCompensations, getTaskEvents, getTaskArtifacts,
   approveNode, approveTask, applyCompensation,
-  type NodeDetail,
+  type NodeDetail, type PlanNode,
 } from "../../lib/api";
 import { ArtifactsPanel } from "./_artifacts";
 import { BuildsPanel } from "./_builds";
@@ -84,9 +84,10 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="p-4 flex flex-col gap-3">
           <h2 className="text-sm font-semibold">Yürütme Planı</h2>
-          {task.plan?.length ? (
+          {/* API `nodes` döndürür (plan değil); DagView'in ihtiyacı olan key/depends_on/skill/tool/kind nodes'ta var */}
+          {(task.nodes?.length ?? 0) > 0 ? (
             <div style={{ height: 400 }}>
-              <DagView plan={task.plan} nodeMap={nodeMap} onApproveNode={(key) => approveMut.mutate(key)} />
+              <DagView plan={(task.nodes ?? []) as unknown as PlanNode[]} nodeMap={nodeMap} onApproveNode={(key) => approveMut.mutate(key)} />
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Plan henüz oluşturulmadı.</p>

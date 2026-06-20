@@ -18,40 +18,34 @@ function buildTimeline(events: ContextEvent[], tools: ToolInvocation[], taskCrea
     items.push({ time: fmtTime(taskCreatedAt), label: "Görev alındı", kind: "info" });
   }
 
-  // Events
+  // Events — gerçek event tipleri: task.init / artifact.created / critique / decision.made
   events.forEach(e => {
-    const type = e.event_type;
+    const type = e.type;
     const p = e.payload ?? {};
+    const node = e.node_key ?? (p.node_key as string | undefined);
     let label = type;
     let detail: string | undefined;
     let kind: TimelineItem["kind"] = "info";
 
-    if (type === "plan_generated") {
-      label = `Planlayıcı → ${(p.nodes as unknown[])?.length ?? "?"} düğüm DAG`;
+    if (type === "task.init") {
+      label = "Görev planı oluşturuldu";
+      kind = "info";
+    } else if (type === "artifact.created") {
+      const knd = (p.kind as string) ?? "çıktı";
+      label = `✓ ${node ?? "düğüm"} çıktı üretti`;
+      detail = knd;
       kind = "success";
-    } else if (type === "node_started") {
-      label = `${p.node_key} başladı`;
+    } else if (type === "critique") {
+      label = `${node ?? "düğüm"} eleştirildi`;
+      detail = p.score !== undefined ? `skor: ${p.score}` : undefined;
       kind = "pending";
-    } else if (type === "node_completed") {
-      label = `✓ ${p.node_key} tamamlandı`;
+    } else if (type === "decision.made") {
+      label = `${e.agent ?? "ajan"} karar verdi`;
+      detail = p.decision as string | undefined;
       kind = "success";
-    } else if (type === "node_failed") {
-      label = `${p.node_key} başarısız`;
-      detail = String(p.error ?? "");
-      kind = "error";
-    } else if (type === "approval_requested") {
-      label = `Onay bekleniyor → ${p.node_key}`;
+    } else if (type === "refinement") {
+      label = `${node ?? "düğüm"} iyileştirildi`;
       kind = "pending";
-    } else if (type === "approval_granted") {
-      label = `${p.actor ?? "Kullanıcı"} onayladı`;
-      kind = "success";
-    } else if (type === "approval_rejected") {
-      label = `Reddedildi`;
-      kind = "error";
-    } else if (type === "tool_result") {
-      const tool = (p as Record<string, unknown>).tool as string;
-      label = `✓ ${tool} sonucu alındı`;
-      kind = "success";
     }
 
     items.push({ time: fmtTime(e.created_at), label, detail, kind });

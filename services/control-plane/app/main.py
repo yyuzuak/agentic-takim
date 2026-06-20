@@ -286,7 +286,8 @@ async def get_events(task_id: str, session: AsyncSession = Depends(get_session))
         select(TaskContextEvent).where(TaskContextEvent.task_id == task_id).order_by(TaskContextEvent.seq)
     )).scalars().all()
     return {"count": len(rows), "events": [
-        {"seq": r.seq, "type": r.type, "agent": r.agent, "node_key": r.node_key, "payload": r.payload}
+        {"seq": r.seq, "type": r.type, "agent": r.agent, "node_key": r.node_key,
+         "payload": r.payload, "created_at": r.created_at.isoformat() if r.created_at else None}
         for r in rows
     ]}
 
