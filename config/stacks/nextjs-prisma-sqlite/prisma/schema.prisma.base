@@ -1,0 +1,13 @@
+// Prisma şeması — datasource + generator scaffold'dan sabittir.
+// Model blokları prisma-sema-uretici ajanından eklenir (tek-sahip).
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// __MODELS__

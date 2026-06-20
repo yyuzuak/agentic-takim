@@ -11,7 +11,7 @@
       "display_name": "Pusula",
       "role": "Ürün Yöneticisi",
       "type": "agent",
-      "skills": ["prd-uretici", "mvp-kapsam-daraltici", "kullanici-yolculugu-simulatoru", "gereksinim-dogrulayici", "onceliklendirme-motoru"]
+      "skills": ["prd-uretici", "mvp-kapsam-daraltici", "kullanici-yolculugu-simulatoru", "gereksinim-dogrulayici", "onceliklendirme-motoru", "app-spec-uretici"]
     },
     "mimar": {
       "display_name": "Mimar",
@@ -23,7 +23,7 @@
       "display_name": "Usta",
       "role": "Yazılım Mühendisi",
       "type": "agent",
-      "skills": ["fullstack-kod-uretici", "frontend-sistem-insaaci", "backend-servis-insaaci", "entegrasyon-motoru", "test-cercevesi-uretici", "hata-ayiklama-motoru"]
+      "skills": ["fullstack-kod-uretici", "frontend-sistem-insaaci", "backend-servis-insaaci", "entegrasyon-motoru", "test-cercevesi-uretici", "hata-ayiklama-motoru", "prisma-sema-uretici", "nextjs-sayfa-uretici", "nextjs-api-uretici"]
     },
     "veda": {
       "display_name": "Veda",

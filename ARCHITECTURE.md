@@ -486,3 +486,46 @@ ACP.TASK.CREATED → agent-runner consumer.handle()
 
 > Tag: `v2.0a-real-agents`. Önkoşul: gerçek LLM doğrulaması için `.env`'e API anahtarı.
 > Sonraki: v2.0-B (workspace + dosya yazma + app-builder ajanları).
+
+---
+
+## 19. v2.0-B App Builder (artifact → çalıştırılabilir repo)
+
+Kategori değişimi: code generation → **deterministic repo factory**. Çıktı artık artifact değil,
+**çalışan sistem**. **İlke:** yapı deterministik kod; içerik LLM; **bütünlük Build Validator ile garanti**.
+
+### Stack (tek, deterministik)
+Next.js (App Router, TS) + **Prisma + SQLite**. Sebep: tek süreç + file-based routing (entry
+wiring ~null) + zero-infra. Problem "multi-service orchestration" değil → **"single repo correctness"**.
+
+### Akış
+```
+app-build DAG (deterministik şekil, LLM bypass; içerik gerçek LLM):
+  app-spec → mimari → prisma-sema → nextjs-sayfa → nextjs-api
+        ↓ artifact'lar (content.files, Next.js+Prisma yolları)
+[Project Assembler]  scripts/assemble_repo.py  (DETERMİNİSTİK)
+  1. Workspace: config/stacks/nextjs-prisma-sqlite/ scaffold (render)
+  2. File placement: namespace ownership (prisma/ app/ app/api/), korumalı scaffold
+  3. Dependency Synthesizer (2-faz): import çıkar + RULE-BASED resolve (alias→internal,
+     builtin hariç, base-deps her zaman) → package.json
+  4. Schema (tek-kaynak): prisma-sema model'leri → schema.prisma (concat değil)
+[Build Validator]  scripts/build_validator.py  (STRICT, build-ÖNCESİ)
+  A) yapısal: package.json, import graph, entry, route export, prisma id/relation
+  B) semantik: route→model (prisma.X şemada var mı), fetch→endpoint, model kullanımı
+        ↓ (GEÇERSE)
+generated/<id>/ → npm install && npx prisma db push && npm run dev → ÇALIŞIR
+```
+
+### File Ownership Contract
+Her app-builder skill ayrık path namespace'ine yazar (prompt dayatır, assembler doğrular):
+`prisma-sema-uretici→prisma/`, `nextjs-sayfa-uretici→app/page+components`, `nextjs-api-uretici→app/api/`.
+Çakışma yapısal olarak imkânsız; scaffold altyapı dosyaları (package.json, layout, lib/prisma) korumalı.
+
+### Mimari konum (LLM ↔ deterministik ayrım)
+- **LLM = semantic compiler frontend**: ne üretileceğini (sayfa/route/şema içeriği) üretir.
+- **Assembler + Validator = deterministic backend**: yapıyı kurar, bütünlüğü statik garanti eder.
+  LLM'in ürettiği hiçbir şey validator'dan geçmeden "runnable" sayılmaz.
+
+> Tag: `v2.0b-app-builder`. Doğrulama: B1–B10 (assemble + validator + npm install/prisma/dev +
+> validator negatif + cold-start + v2.0-A regresyon) yeşil.
+> Sonraki: v2.1 (runtime workspace), v2.2 (build sandbox), v2.3 (live preview).

@@ -1,0 +1,10 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: #0b0e14;
+  color: #e6e6e6;
+  line-height: 1.5;
+  padding: 2rem;
+}
+a { color: #3b82f6; }
+input, textarea, button { font: inherit; }

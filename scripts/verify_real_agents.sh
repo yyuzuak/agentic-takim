@@ -114,8 +114,8 @@ emit(d.get('status')=='done' and n.get('retry_count')==2, f\"retry/DLQ korunuyor
 " | while IFS= read -r l; do case "$l" in OK::*) ok "${l#OK::}";; BAD::*) bad "${l#BAD::}";; esac; done
 fi
 
-PASS=$(grep -c P "$TALLY" 2>/dev/null || echo 0)
-FAIL=$(grep -c F "$TALLY" 2>/dev/null || echo 0)
+PASS=$(grep -c P "$TALLY" 2>/dev/null); PASS=${PASS:-0}
+FAIL=$(grep -c F "$TALLY" 2>/dev/null); FAIL=${FAIL:-0}
 rm -f "$TALLY"
 note "SONUÇ: $PASS geçti, $FAIL başarısız"
 [ "$FAIL" -eq 0 ] && echo "✅ v2.0-A REAL AGENTS — DOĞRULANDI" || echo "❌ düzeltme gerekiyor"

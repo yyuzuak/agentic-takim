@@ -1,0 +1,45 @@
+{
+  "stack": "nextjs-prisma-sqlite",
+  "description": "Next.js (App Router, TS) + Prisma + SQLite — tek süreç, zero-infra",
+  "run": ["npm install", "npx prisma db push", "npm run dev"],
+  "scaffold_files": [
+    "package.json.tmpl", "next.config.mjs", "tsconfig.json",
+    "app/layout.tsx", "app/globals.css", "lib/prisma.ts",
+    "prisma/schema.prisma.base", ".env.example"
+  ],
+  "ownership": {
+    "prisma-sema-uretici": ["prisma/"],
+    "nextjs-sayfa-uretici": ["app/", "app/components/"],
+    "nextjs-api-uretici": ["app/api/"]
+  },
+  "ownership_priority": ["nextjs-api-uretici", "nextjs-sayfa-uretici", "prisma-sema-uretici"],
+  "base_deps": {
+    "next": "14.2.15",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@prisma/client": "5.22.0"
+  },
+  "base_dev_deps": {
+    "typescript": "5.6.3",
+    "@types/node": "20.16.11",
+    "@types/react": "18.3.11",
+    "@types/react-dom": "18.3.0",
+    "prisma": "5.22.0",
+    "tsx": "4.19.2"
+  },
+  "version_map": {
+    "zod": "3.23.8",
+    "date-fns": "4.1.0",
+    "clsx": "2.1.1",
+    "nanoid": "5.0.9",
+    "bcryptjs": "2.4.3",
+    "jsonwebtoken": "9.0.2",
+    "uuid": "11.0.3"
+  },
+  "internal_prefixes": ["@/", "~/", "./", "../"],
+  "node_builtins": [
+    "fs", "path", "os", "crypto", "http", "https", "stream", "util", "url",
+    "events", "buffer", "process", "child_process", "net", "zlib", "querystring",
+    "assert", "timers", "string_decoder"
+  ]
+}

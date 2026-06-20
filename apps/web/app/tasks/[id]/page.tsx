@@ -101,7 +101,7 @@ export default function TaskDetailPage({ params }: { params: { id: string } }) {
       </div>
 
       {/* Artifacts — ajanların ürettiği gerçek çıktılar (v2.0-A) */}
-      {(artifactData?.count ?? 0) > 0 && <ArtifactsPanel artifacts={artifactData!.artifacts} />}
+      {(artifactData?.count ?? 0) > 0 && <ArtifactsPanel artifacts={artifactData!.artifacts} taskId={id} />}
 
       {/* Tool Invocations */}
       {(toolData?.count ?? 0) > 0 && (

@@ -114,6 +114,16 @@ _FULFILLMENT = [
     ("t5", "tool", "send_whatsapp", {"to": "+90", "doc": "from:t3"}, ["t4"]),
 ]
 
+# v2.0-B app-build: Next.js+Prisma repo üreten sabit (deterministik) DAG.
+# Şekil sabit tutulur — assembler prisma→api bağımlılığına ve page/api ayrımına güvenir.
+_APP_BUILD = [
+    ("t1", "app-spec-uretici", []),               # pusula — entity/feature/sayfa speci
+    ("t2", "sistem-mimarisi-uretici", ["t1"]),    # mimar — mimari (stack sabit)
+    ("t3", "prisma-sema-uretici", ["t1", "t2"]),  # usta — prisma şema + seed
+    ("t4", "nextjs-sayfa-uretici", ["t1", "t2"]), # usta — app/page + components
+    ("t5", "nextjs-api-uretici", ["t3"]),         # usta — app/api route'ları (şemaya bağlı)
+]
+
 
 def infer_type(goal: str) -> str:
     g = goal.lower()
@@ -121,6 +131,8 @@ def infer_type(goal: str) -> str:
         return "fulfillment"
     if any(w in g for w in ["eleştir", "elestir", "değerlendir", "degerlendir", "gözden geçir", "critique", "review", "consensus", "uzlaş"]):
         return "collab"
+    if any(w in g for w in ["uygulama", "app", "web sitesi", "website", "nextjs", "next.js", "dashboard", "gösterge paneli"]):
+        return "app-build"
     if any(w in g for w in ["araştır", "arastir", "analiz", "rapor", "research", "incele"]):
         return "research"
     return "build"
@@ -133,6 +145,8 @@ def _rule_plan(goal: str, wtype: str | None) -> list[dict]:
                 for k, kind, tool, args, d in _FULFILLMENT]
     if t == "collab":
         return [{"key": k, "skill": s, "depends_on": d, "role": r} for k, s, d, r in _COLLAB]
+    if t == "app-build":
+        return [{"key": k, "skill": s, "depends_on": d, "role": "producer"} for k, s, d in _APP_BUILD]
     template = _RESEARCH if t == "research" else _BUILD
     return [{"key": k, "skill": s, "depends_on": d, "role": "producer"} for k, s, d in template]
 
@@ -158,6 +172,10 @@ async def decompose(goal: str, skill: str | None, wtype: str | None) -> tuple[li
     if skill:
         plan, source = [{"key": "t1", "skill": skill, "depends_on": []}], "single"
         error = None
+    elif inferred == "app-build":
+        # v2.0-B: app-build DAG'ı deterministik (LLM planner bypass) — şekil sabit,
+        # assembler buna güvenir. Düğüm İÇERİĞİ yine gerçek LLM ile üretilir.
+        plan, source, error = _rule_plan(goal, "app-build"), "rule", "app_build_deterministic"
     else:
         nodes, error = (None, "disabled")
         if settings.llm_available:

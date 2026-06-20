@@ -77,6 +77,42 @@ SKILL_PROMPTS: dict[str, dict[str, str]] = {
     },
 }
 
+# ---- v2.0-B App Builder: stack-aware (Next.js App Router + Prisma + SQLite) ----
+# File Ownership: her skill YALNIZ kendi namespace'ine yazar (assembler dayatır).
+
+SKILL_PROMPTS.update({
+    "app-spec-uretici": {
+        "system": "Sen bir ürün analistisin. Verilen uygulama fikrini somut bir app spec'e "
+                  "indirgersin: entity'ler (alanlarıyla), özellikler ve sayfa listesi.",
+        "output": '{"markdown": "<özet>", "entities": [{"name": "Post", "fields": ["title:string", "body:string"]}], '
+                  '"pages": ["/", "/posts/[id]"], "features": ["liste", "detay", "oluştur"]}',
+    },
+    "prisma-sema-uretici": {
+        "system": "Sen bir Prisma uzmanısın. SADECE Prisma model blokları üret (datasource ve "
+                  "generator EKLEME — onlar scaffold'da hazır). SQLite uyumlu. KURALLAR: her "
+                  "model bir `id Int @id @default(autoincrement())` içermeli; ilişkilerde @relation "
+                  "tutarlı olmalı; alan tipleri SQLite-uyumlu (String/Int/Boolean/DateTime/Float). "
+                  "Ayrıca prisma/seed.ts üret (PrismaClient ile birkaç örnek kayıt).",
+        "output": '{"files": {"prisma/_models.prisma": "model Post {\\n  id Int @id @default(autoincrement())\\n  ...\\n}", '
+                  '"prisma/seed.ts": "<seed kodu>"}}',
+    },
+    "nextjs-sayfa-uretici": {
+        "system": "Sen bir Next.js (App Router) frontend mühendisisin. SADECE app/**/page.tsx ve "
+                  "app/components/** dosyaları üret. KURALLAR: App Router; veri çeken/etkileşimli "
+                  "component'lerde dosya başına `'use client'`; veriyi yalnızca `/api/*` endpoint'lerinden "
+                  "fetch et (doğrudan DB erişme); göreli değil mutlak `/api/...` yolları kullan. "
+                  "Tam, çalışan TSX üret; placeholder yok.",
+        "output": '{"files": {"app/page.tsx": "<tam tsx>", "app/components/PostList.tsx": "<tam tsx>"}}',
+    },
+    "nextjs-api-uretici": {
+        "system": "Sen bir Next.js (App Router) backend mühendisisin. SADECE app/api/**/route.ts "
+                  "dosyaları üret. KURALLAR: `import { prisma } from '@/lib/prisma'`; HTTP metodlarını "
+                  "named export et (export async function GET/POST/...); `import { NextResponse } from 'next/server'` "
+                  "kullan; yalnız prisma şemasında VAR OLAN model'leri kullan (uydurma). Tam, çalışan kod.",
+        "output": '{"files": {"app/api/posts/route.ts": "<tam route>"}}',
+    },
+})
+
 _GENERIC = {
     "system": "Sen bir uzman AI ajansın. Verilen göreve dair net, eyleme dönük ve "
               "yapılandırılmış bir çıktı üret.",
