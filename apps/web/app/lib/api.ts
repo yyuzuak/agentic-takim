@@ -273,6 +273,8 @@ export interface MemoryEntry {
   reuse_success_count: number;
   refinement_summary: unknown;
   parent_memory_ids: unknown;
+  value_score: number;
+  last_used_at: string | null;
 }
 
 export interface MemoryList {

@@ -635,4 +635,35 @@ UI /preview/status poll → running → "Uygulamayı Aç (localhost:8100)" (yeni
 > Tag: `v2.3-live-preview`. Doğrulama E1–E8: localhost:8100'de canlı app (200) + /api/posts gerçek
 > SQLite verisi, stop/tek-slot replace, regresyon yeşil. (Route sıralama bug'ı — /preview/stop
 > {build_id}'den önce — düzeltildi.)
-> Sonraki: v3.0 autonomous repair (build/preview fail → structured error → planner re-task).
+
+## 23. v0.8.1 Memory Consolidation (dedup / decay / scoring / forgetting)
+
+v0.8 memory sadece depoluyordu; zamanla bozuluyordu (sınırsız büyüme, eşit ağırlık, near-dup
+birikimi). v0.8.1 dört eksikliği kapatır:
+
+### value_score — bileşik değer
+```
+recency = exp(-age_days / 14)          # decay, yarı-ömür 14 gün
+reuse   = tanh(reuse_success_count/3)  # en güçlü sinyal
+retr    = tanh(retrieval_count/5)
+refine  = refinement_summary.best_score
+value   = clamp01(0.40·reuse + 0.30·recency + 0.15·retr + 0.15·refine)
+```
+
+### Store-time dedup
+`memory.store()` → insert öncesi Qdrant'ta aynı `workflow_type` içinde vektör arama: benzerlik ≥
+eşik (lokal 0.97 / openai 0.93) → yeni entry AÇILMAZ, mevcutu reinforce et (`retrieval_count++`,
+`last_used_at=now`). Near-dup birikimini kaynağında keser.
+
+### Consolidation job (`memory.consolidate`)
+Control-plane lifespan'de periyodik task (30dk), manuel tetikleme `POST /memory/consolidate`:
+- **Re-score:** tüm `indexed` entry'lerin `value_score`'unu recency dahil recompute eder.
+- **Forgetting:** per-type top-20 tut; eski (>7gün) + reuse=0 + value<0.25 → evict; global cap 500.
+- Evict = Postgres sil + Qdrant point sil (idempotent).
+
+### Recall re-ranking
+`final = 0.7·similarity + 0.3·value_score` → yüksek-değerli memory düşük-değerlinin önüne geçer.
+Diversity + drift guard korunur. Recall sonrası `last_used_at=now`.
+
+> Migration 0014 (`value_score Float default 1.0`, `last_used_at DateTime nullable`). UI memory
+> tablosuna "Değer" sütunu (renk eşikli). Tag: `v0.8.1-memory-consolidation`. Doğrulama M1-M7 yeşil.

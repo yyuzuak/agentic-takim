@@ -195,6 +195,9 @@ class MemoryEntry(Base):
     refinement_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     retrieval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reuse_success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # v0.8.1 consolidation: bileşik değer + son kullanım (decay/forgetting)
+    value_score: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")  # pending|indexed
     provider: Mapped[str | None] = mapped_column(String, nullable=True)  # local|openai
     parent_memory_ids: Mapped[list | None] = mapped_column(JSON, default=list)

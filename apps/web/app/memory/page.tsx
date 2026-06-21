@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Table, THead, TBody, TR, TH, TD } from "../components/ui/table";
 import { Skeleton } from "../components/ui/skeleton";
+import { cn } from "../lib/utils";
 
 export default function MemoryPage() {
   const [query, setQuery] = useState("");
@@ -89,6 +90,7 @@ export default function MemoryPage() {
             <tr>
               <TH>Hedef</TH>
               <TH>Tip</TH>
+              <TH className="text-right">Değer</TH>
               <TH className="text-right">Sonuç</TH>
               <TH className="text-right">Tekrar</TH>
             </tr>
@@ -96,10 +98,13 @@ export default function MemoryPage() {
           <TBody>
             {list.entries.map((e, i) => {
               const ok = e.outcome === "done";
+              const v = e.value_score ?? 1;
+              const vColor = v >= 0.6 ? "text-success" : v >= 0.35 ? "text-warning" : "text-destructive";
               return (
                 <TR key={i}>
                   <TD className="max-w-xs"><span className="block truncate">{e.goal}</span></TD>
                   <TD className="text-muted-foreground">{e.workflow_type ?? "—"}</TD>
+                  <TD className={cn("text-right tabular-nums font-mono", vColor)}>{v.toFixed(2)}</TD>
                   <TD className="text-right">
                     {ok
                       ? <CheckCircle2 className="w-4 h-4 text-success inline" />

@@ -26,6 +26,23 @@ from .models import (
 )
 
 
+CONSOLIDATION_INTERVAL_S = 1800  # 30 dk
+
+
+async def _consolidation_scheduler() -> None:
+    """v0.8.1 — periyodik memory consolidation (re-score/decay + forgetting)."""
+    from .db import get_session
+    while True:
+        await asyncio.sleep(CONSOLIDATION_INTERVAL_S)
+        try:
+            async for s in get_session():
+                await memory.consolidate(s)
+                await s.commit()
+                break
+        except Exception as e:  # noqa: BLE001
+            print(f"[memory] consolidation hata: {e}", flush=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.nc = None
@@ -38,10 +55,11 @@ async def lifespan(app: FastAPI):
         app.state._scheduler = asyncio.create_task(orchestrator.retry_scheduler(app.state.js))
         if settings.memory_available:
             await memory.ensure_collection()
+            app.state._consolidator = asyncio.create_task(_consolidation_scheduler())
     except Exception as e:  # noqa: BLE001 — NATS yoksa /health yine ayakta kalmalı
         print(f"! NATS bağlantısı kurulamadı: {e}")
     yield
-    for attr in ("_consumer", "_scheduler"):
+    for attr in ("_consumer", "_scheduler", "_consolidator"):
         t = getattr(app.state, attr, None)
         if t:
             t.cancel()
@@ -308,9 +326,18 @@ async def list_memory(session: AsyncSession = Depends(get_session)) -> dict:
         {"task_id": r.task_id, "goal": r.goal, "workflow_type": r.workflow_type, "outcome": r.outcome,
          "status": r.status, "provider": r.provider, "retrieval_count": r.retrieval_count,
          "reuse_success_count": r.reuse_success_count, "refinement_summary": r.refinement_summary,
-         "parent_memory_ids": r.parent_memory_ids}
+         "parent_memory_ids": r.parent_memory_ids, "value_score": r.value_score,
+         "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None}
         for r in rows
     ]}
+
+
+@app.post("/memory/consolidate")
+async def memory_consolidate(session: AsyncSession = Depends(get_session)) -> dict:
+    """v0.8.1 — konsolidasyonu manuel tetikle (re-score/decay + forgetting)."""
+    res = await memory.consolidate(session)
+    await session.commit()
+    return res
 
 
 @app.get("/memory/recall")
