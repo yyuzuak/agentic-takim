@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     observer_internal_token: str = "dev-internal-token"  # service-to-service auth
     builder_url: str = "http://builder:8003"  # v2.1: workspace runtime proxy
     sandbox_url: str = "http://sandbox:8004"  # v2.2: build execution proxy
+    preview_url: str = "http://preview:8005"  # v2.3: live preview proxy
+    preview_public_url: str = "http://localhost:8100"  # tarayıcının açacağı canlı URL
 
 
 settings = Settings()

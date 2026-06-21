@@ -87,6 +87,8 @@ services:
       OBSERVER_INTERNAL_TOKEN: ${OBSERVER_INTERNAL_TOKEN:-dev-internal-token}
       BUILDER_URL: ${BUILDER_URL:-http://builder:8003}
       SANDBOX_URL: ${SANDBOX_URL:-http://sandbox:8004}
+      PREVIEW_URL: ${PREVIEW_URL:-http://preview:8005}
+      PREVIEW_PUBLIC_URL: ${PREVIEW_PUBLIC_URL:-http://localhost:8100}
     ports:
       - "${CONTROL_PLANE_PORT:-8000}:8000"
     depends_on:
@@ -189,6 +191,24 @@ services:
       WORKSPACES_DIR: /workspaces
     ports:
       - "${SANDBOX_PORT:-8004}:8004"
+    volumes:
+      - builder-workspaces:/workspaces:ro
+    mem_limit: 2g
+    cpus: "2"
+
+  # v2.3 — Preview: canlı dev server (npm run dev). Tek-slot, host 8100'de servis.
+  preview:
+    build:
+      context: ../..
+      dockerfile: services/preview/Dockerfile
+    profiles: ["core"]
+    environment:
+      WORKSPACES_DIR: /workspaces
+      PREVIEW_PUBLIC_URL: ${PREVIEW_PUBLIC_URL:-http://localhost:8100}
+      PREVIEW_DEV_PORT: "3100"
+    ports:
+      - "${PREVIEW_API_PORT:-8005}:8005"
+      - "${PREVIEW_PORT:-8100}:3100"
     volumes:
       - builder-workspaces:/workspaces:ro
     mem_limit: 2g

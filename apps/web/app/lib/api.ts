@@ -44,6 +44,11 @@ export const getBuildFile = (buildId: string, path: string) =>
 // --- v2.2 Build Execution (sandbox, via control-plane proxy) ---
 export const runBuild = (buildId: string) => post<BuildRun>(`/builds/${buildId}/run`);
 export const getBuildRuns = (buildId: string) => get<BuildRunList>(`/builds/${buildId}/runs`);
+
+// --- v2.3 Live Preview (preview servisi, via control-plane proxy) ---
+export const startPreview = (buildId: string) => post<PreviewStatus>(`/builds/${buildId}/preview`);
+export const getPreviewStatus = () => get<PreviewStatus>(`/preview/status`);
+export const stopPreview = () => post<PreviewStatus>(`/preview/stop`);
 export const getMemory = () => get<MemoryList>(`/memory`);
 export const recallMemory = (goal: string) => get<RecallResult>(`/memory/recall?goal=${encodeURIComponent(goal)}`);
 export const applyCompensation = (taskId: string, execId: string, actor = "studio") =>
@@ -230,6 +235,17 @@ export interface BuildRun {
 export interface BuildRunList {
   count: number;
   runs: BuildRun[];
+}
+
+// --- v2.3 Preview ---
+export interface PreviewStatus {
+  active: boolean;
+  build_id: string | null;
+  status: string; // starting | running | failed | stopped
+  url: string | null;
+  started_at: number | null;
+  log_tail?: string;
+  public_url?: string;
 }
 
 export interface ContextEvent {

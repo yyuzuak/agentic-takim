@@ -4,13 +4,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Hammer, FileCode, CheckCircle2, XCircle, ChevronRight, ChevronDown } from "lucide-react";
 import {
   buildRepo, getTaskBuilds, getBuild, getBuildFile, runBuild, getBuildRuns,
+  startPreview, getPreviewStatus, stopPreview,
   type BuildRecord, type BuildRun,
 } from "../../lib/api";
 import { Card } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { cn } from "../../lib/utils";
-import { Play } from "lucide-react";
+import { Play, ExternalLink, Square, Eye } from "lucide-react";
 
 function FileViewer({ buildId, path }: { buildId: string; path: string }) {
   const { data, isLoading } = useQuery({
@@ -80,6 +81,64 @@ function RunSection({ buildId }: { buildId: string }) {
             <details className="text-xs">
               <summary className="cursor-pointer text-muted-foreground">Ham log</summary>
               <pre className="mt-1 p-2 rounded bg-background/60 overflow-x-auto max-h-60">{latest.log_tail}</pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewSection({ buildId }: { buildId: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["preview-status"],
+    queryFn: getPreviewStatus,
+    refetchInterval: 3000,
+  });
+  const startMut = useMutation({
+    mutationFn: () => startPreview(buildId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["preview-status"] }),
+  });
+  const stopMut = useMutation({
+    mutationFn: () => stopPreview(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["preview-status"] }),
+  });
+
+  const mine = data?.build_id === buildId && data?.active;
+  const url = data?.public_url || data?.url || "http://localhost:8100";
+
+  return (
+    <div className="rounded-lg border border-border p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground">Canlı Önizleme</span>
+        {!mine ? (
+          <Button size="sm" variant="secondary" onClick={() => startMut.mutate()} loading={startMut.isPending}>
+            {!startMut.isPending && <Eye className="w-3.5 h-3.5" />}
+            Önizle
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" onClick={() => stopMut.mutate()} loading={stopMut.isPending}>
+            <Square className="w-3.5 h-3.5" /> Durdur
+          </Button>
+        )}
+      </div>
+      {mine && (
+        <div className="text-xs space-y-1">
+          {data?.status === "starting" && (
+            <p className="text-warning">⏳ Uygulama başlatılıyor… (npm install + dev, dakikalar sürebilir)</p>
+          )}
+          {data?.status === "running" && (
+            <a href={url} target="_blank" rel="noreferrer"
+               className="inline-flex items-center gap-1.5 text-primary font-medium">
+              <ExternalLink className="w-4 h-4" /> Uygulamayı Aç — {url}
+            </a>
+          )}
+          {data?.status === "failed" && <p className="text-destructive">✗ Başlatma başarısız (log aşağıda)</p>}
+          {data?.log_tail && (
+            <details>
+              <summary className="cursor-pointer text-muted-foreground">Preview log</summary>
+              <pre className="mt-1 p-2 rounded bg-background/60 overflow-x-auto max-h-60">{data.log_tail}</pre>
             </details>
           )}
         </div>
@@ -159,6 +218,8 @@ function BuildCard({ build }: { build: BuildRecord }) {
 
           {/* v2.2 — sandbox'ta gerçekten build et */}
           <RunSection buildId={build.build_id} />
+          {/* v2.3 — canlı önizleme (npm run dev → localhost:8100) */}
+          <PreviewSection buildId={build.build_id} />
         </div>
       )}
     </Card>

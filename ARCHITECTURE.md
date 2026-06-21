@@ -607,3 +607,32 @@ Her `/run` yeni satır; build_id'ye bağlı (Build → Run #N).
 > Tag: `v2.2-build-execution`. Doğrulama D1–D8: gerçek build (blog uygulaması install+prisma+build
 > ✓ 25s), kasıtlı hata → failed @ build + structured error, persist, UI raporu, regresyon yeşil.
 > Sonraki: v2.3 live preview, v3.0 autonomous repair.
+
+---
+
+## 22. v2.3 Live Preview (üretilen uygulamayı tarayıcıda canlı gör)
+
+atoms.dev "uygulamayı canlı gör" anı. Tam döngü tamamlandı: **prompt → ajanlar → assemble →
+validate → build → ÇALIŞAN uygulama**. v2.2 build = one-shot; preview = **uzun-süreli stateful
+süreç** → ayrı servis.
+
+### services/preview (port 8005 API + dev 3100→host 8100) — tek-slot, in-memory
+```
+control-plane POST /builds/{id}/preview → preview POST /preview/{id}
+  önceki preview kill → workspace (ro) → /tmp kopya → npm install → prisma db push → seed (best-effort)
+  → npm run dev -p 3100 -H 0.0.0.0 (background Popen, ayakta) → log'da "Ready" → status=running
+  ← {status, build_id, url: localhost:8100}
+UI /preview/status poll → running → "Uygulamayı Aç (localhost:8100)" (yeni sekme)
+```
+- **Tek sabit-port slot:** dev server 3100 → host 8100; kullanıcı doğrudan açar (reverse-proxy YOK
+  → Next HMR/asset sorunsuz). Aynı anda 1 preview; yeni preview öncekini durdurur.
+- **In-memory state** (DB/migration yok, ephemeral); **TTL auto-stop** (varsayılan 20dk, kaynak).
+- **Async start:** POST hemen `starting` döner; install+dev arka thread; UI poll eder.
+- Hardening: non-root, workspace read-only, mem/cpu limit, Docker socket yok.
+
+> **Güvenlik notu:** uzun-süreli LLM-üretilen kod sunucusu (build'den fazla maruziyet); konteyner+
+> non-root+read-only+limit+TTL lokal dev için yeterli, prodüksiyon ephemeral/sandboxing ister.
+> Tag: `v2.3-live-preview`. Doğrulama E1–E8: localhost:8100'de canlı app (200) + /api/posts gerçek
+> SQLite verisi, stop/tek-slot replace, regresyon yeşil. (Route sıralama bug'ı — /preview/stop
+> {build_id}'den önce — düzeltildi.)
+> Sonraki: v3.0 autonomous repair (build/preview fail → structured error → planner re-task).

@@ -493,6 +493,38 @@ async def run_build(build_id: str, session: AsyncSession = Depends(get_session))
     return res
 
 
+# ---------------------------------------------------------------- v2.3 -------
+# Live Preview — preview servisi canlı dev server'ı host 8100'de tutar (tek-slot).
+@app.post("/builds/{build_id}/preview")
+async def start_preview(build_id: str) -> dict:
+    """Üretilen uygulamayı canlı dev server olarak başlat. (proxy)"""
+    import httpx
+    from .config import settings
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{settings.preview_url}/preview/{build_id}")
+    return {**r.json(), "public_url": settings.preview_public_url}
+
+
+@app.get("/preview/status")
+async def preview_status() -> dict:
+    """Aktif preview durumu. (proxy)"""
+    import httpx
+    from .config import settings
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(f"{settings.preview_url}/preview/status")
+    return {**r.json(), "public_url": settings.preview_public_url}
+
+
+@app.post("/preview/stop")
+async def preview_stop() -> dict:
+    """Aktif preview'i durdur. (proxy)"""
+    import httpx
+    from .config import settings
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(f"{settings.preview_url}/preview/stop")
+    return r.json()
+
+
 @app.get("/builds/{build_id}/runs")
 async def list_build_runs(build_id: str, session: AsyncSession = Depends(get_session)) -> dict:
     from .models import BuildRun
