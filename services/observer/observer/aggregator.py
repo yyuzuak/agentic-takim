@@ -72,12 +72,14 @@ async def _node_kpis(session: AsyncSession, since: datetime) -> dict[str, Any]:
         session, stmt, created_at_col=Task.created_at, since=since
     )).all()
     total = len(rows)
-    failed_nodes = [r for r in rows if r.status in ("failed", "error", "timeout")]
+    # orchestrator terminal statuses: dead_letter (DLQ), failed olarak sayılır
+    failed_nodes = [r for r in rows if r.status in ("failed", "error", "timeout", "dead_letter")]
     failed_with_retry = sum(1 for r in failed_nodes if (r.retry_count or 0) > 0)
     retry_depths = [r.retry_count or 0 for r in failed_nodes]
     dlq = sum(
         1 for r in rows
-        if r.error_code is not None and (r.retry_count or 0) >= (r.max_retries or 0)
+        if r.status == "dead_letter"
+        or (r.error_code is not None and (r.retry_count or 0) >= (r.max_retries or 0))
     )
     return {
         "retry_coverage": _ratio(failed_with_retry, len(failed_nodes)),

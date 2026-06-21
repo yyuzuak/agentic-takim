@@ -23,7 +23,8 @@ _EXCLUDE_DIRS = ("node_modules", ".next", "dist", "build", ".git")
 
 
 def _meta(stack: str) -> dict:
-    return json.load(open(os.path.join(STACKS, stack, "_meta.json")))
+    with open(os.path.join(STACKS, stack, "_meta.json")) as f:
+        return json.load(f)
 
 
 def _lay_scaffold(stack: str, out: str, app_name: str) -> None:
@@ -40,7 +41,8 @@ def _lay_scaffold(stack: str, out: str, app_name: str) -> None:
                 rel = "prisma/schema.prisma"
             dest = os.path.join(out, rel)
             os.makedirs(os.path.dirname(dest) or out, exist_ok=True)
-            open(dest, "w").write(open(src).read().replace("__APP_NAME__", app_name))
+            with open(src) as sf, open(dest, "w") as df:
+                df.write(sf.read().replace("__APP_NAME__", app_name))
     ex = os.path.join(out, ".env.example")
     if os.path.exists(ex) and not os.path.exists(os.path.join(out, ".env")):
         shutil.copy(ex, os.path.join(out, ".env"))
@@ -62,7 +64,8 @@ def _place_files(artifacts: list[dict], out: str):
                 skipped.append(f"{safe} (çakışma)"); continue
             dest = os.path.join(out, safe)
             os.makedirs(os.path.dirname(dest) or out, exist_ok=True)
-            open(dest, "w").write(str(body))
+            with open(dest, "w") as df:
+                df.write(str(body))
             written.append(safe)
     return written, skipped, prisma_models
 
@@ -72,12 +75,14 @@ _MODEL_RE = re.compile(r"(model\s+\w+\s*\{.*?\})", re.DOTALL)
 
 def _merge_schema(out: str, prisma_models: list[str]) -> int:
     schema_path = os.path.join(out, "prisma", "schema.prisma")
-    base = open(schema_path).read()
+    with open(schema_path) as f:
+        base = f.read()
     blocks = []
     for raw in prisma_models:
         blocks += _MODEL_RE.findall(raw)
     base = base.replace("// __MODELS__", "\n\n".join(b.strip() for b in blocks) or "// (model yok)")
-    open(schema_path, "w").write(base)
+    with open(schema_path, "w") as f:
+        f.write(base)
     return len(blocks)
 
 
@@ -94,7 +99,8 @@ def _extract_imports(out: str) -> set[str]:
         dirs[:] = [d for d in dirs if d not in _EXCLUDE_DIRS]
         for fn in files:
             if fn.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs")):
-                txt = open(os.path.join(dp, fn), errors="ignore").read()
+                with open(os.path.join(dp, fn), errors="ignore") as f:
+                    txt = f.read()
                 for rx in _IMPORT_RES:
                     specs.update(rx.findall(txt))
     return specs
@@ -116,7 +122,8 @@ def _resolve_pkg(spec: str, meta: dict) -> str | None:
 
 def _synth_deps(out: str, meta: dict) -> dict:
     pkg_path = os.path.join(out, "package.json")
-    pkg = json.load(open(pkg_path))
+    with open(pkg_path) as f:
+        pkg = json.load(f)
     deps = dict(meta["base_deps"]); deps.update(pkg.get("dependencies", {}))
     vmap = meta.get("version_map", {})
     base_set = set(meta["base_deps"]) | set(meta["base_dev_deps"])
@@ -127,7 +134,8 @@ def _synth_deps(out: str, meta: dict) -> dict:
             continue
         deps[name] = vmap.get(name, "latest"); added[name] = deps[name]
     pkg["dependencies"] = dict(sorted(deps.items()))
-    json.dump(pkg, open(pkg_path, "w"), indent=2)
+    with open(pkg_path, "w") as f:
+        json.dump(pkg, f, indent=2)
     return added
 
 
@@ -136,13 +144,13 @@ def _finalize(out: str, app_name: str) -> bool:
     injected = False
     if not os.path.exists(page):
         os.makedirs(os.path.dirname(page), exist_ok=True)
-        open(page, "w").write(
-            f'export default function Home() {{\n  return <main><h1>{app_name}</h1>'
-            f'<p>Agentic Takım tarafından üretildi.</p></main>;\n}}\n')
+        with open(page, "w") as f:
+            f.write(f'export default function Home() {{\n  return <main><h1>{app_name}</h1>'
+                    f'<p>Agentic Takım tarafından üretildi.</p></main>;\n}}\n')
         injected = True
-    open(os.path.join(out, "README.md"), "w").write(
-        f"# {app_name}\n\nAgentic Takım App Builder (Next.js + Prisma + SQLite).\n\n"
-        "## Çalıştır\n```bash\nnpm install\nnpx prisma db push\nnpm run dev\n```\n")
+    with open(os.path.join(out, "README.md"), "w") as f:
+        f.write(f"# {app_name}\n\nAgentic Takım App Builder (Next.js + Prisma + SQLite).\n\n"
+                "## Çalıştır\n```bash\nnpm install\nnpx prisma db push\nnpm run dev\n```\n")
     return injected
 
 

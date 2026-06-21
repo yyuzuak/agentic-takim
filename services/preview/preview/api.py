@@ -28,9 +28,11 @@ async def status() -> dict:
 
 @app.post("/preview/stop")
 async def stop() -> dict:
-    return manager.stop()
+    import asyncio
+    return await asyncio.to_thread(manager.stop)
 
 
 @app.post("/preview/{build_id}")
 async def start(build_id: str) -> dict:
-    return manager.start(build_id, PUBLIC_URL)
+    import asyncio
+    return await asyncio.to_thread(manager.start, build_id, PUBLIC_URL)

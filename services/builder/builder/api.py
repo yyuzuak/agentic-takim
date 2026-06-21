@@ -55,9 +55,10 @@ async def build(task_id: str, stack: str = Query(default="nextjs-prisma-sqlite")
             return {**existing.as_dict(), "deduped": True}
 
         # build_number = task içi monotonik
-        count = len((await s.execute(
-            select(Build.build_id).where(Build.task_id == task_id)
-        )).all())
+        from sqlalchemy import func as sqlfunc
+        count = (await s.execute(
+            select(sqlfunc.count()).select_from(Build).where(Build.task_id == task_id)
+        )).scalar() or 0
         build_number = count + 1
 
     build_id = snapshot.new_build_id()
@@ -98,7 +99,8 @@ def _file_tree(build_id: str) -> list[dict]:
     mpath = os.path.join(WORKSPACES, build_id, ".build_manifest.json")
     if not os.path.exists(mpath):
         return []
-    return json.load(open(mpath)).get("files", [])
+    with open(mpath) as f:
+        return json.load(f).get("files", [])
 
 
 @app.get("/builds/{build_id}")
@@ -117,4 +119,5 @@ async def get_file(build_id: str, path: str = Query(...)) -> dict:
     real_root = os.path.realpath(os.path.join(WORKSPACES, build_id))
     if not os.path.realpath(full).startswith(real_root) or not os.path.isfile(full):
         raise HTTPException(404, "dosya bulunamadı")
-    return {"path": safe, "content": open(full, errors="ignore").read()}
+    with open(full, errors="ignore") as f:
+        return {"path": safe, "content": f.read()}

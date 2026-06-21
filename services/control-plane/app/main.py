@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import httpx
+
 from . import bus, memory, orchestrator
 from .config import settings
 from .db import get_session
@@ -58,7 +60,10 @@ async def lifespan(app: FastAPI):
             app.state._consolidator = asyncio.create_task(_consolidation_scheduler())
     except Exception as e:  # noqa: BLE001 — NATS yoksa /health yine ayakta kalmalı
         print(f"! NATS bağlantısı kurulamadı: {e}")
+    # shared HTTP client — connection pool (timeout per-request override ile)
+    app.state.http = httpx.AsyncClient(timeout=30)
     yield
+    await app.state.http.aclose()
     for attr in ("_consumer", "_scheduler", "_consolidator"):
         t = getattr(app.state, attr, None)
         if t:
@@ -383,36 +388,25 @@ class ApplyIn(BaseModel):
 
 @app.post("/tasks/{task_id}/compensations/{exec_id}/apply")
 async def apply_compensation(
-    task_id: str, exec_id: str, body: ApplyIn,
+    task_id: str, exec_id: str, body: ApplyIn, request: Request,
 ) -> dict:
     """Compensation apply isteğini tool-runtime API'sine proxy'ler."""
-    import httpx
-    from .config import settings
     url = f"{settings.tool_runtime_url}/compensations/{exec_id}/apply"
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(url, json={"actor": body.actor})
+    r = await request.app.state.http.post(url, json={"actor": body.actor})
     return r.json()
 
 
 @app.get("/health/adapters")
-async def health_adapters() -> dict:
+async def health_adapters(request: Request) -> dict:
     """Adapter health bilgisini tool-runtime API'sinden proxy'ler."""
-    import httpx
-    from .config import settings
-    url = f"{settings.tool_runtime_url}/health/adapters"
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(url)
+    r = await request.app.state.http.get(f"{settings.tool_runtime_url}/health/adapters")
     return r.json()
 
 
 @app.get("/tools/capabilities")
-async def tool_capabilities() -> dict:
+async def tool_capabilities(request: Request) -> dict:
     """Capability bilgisini tool-runtime API'sinden proxy'ler."""
-    import httpx
-    from .config import settings
-    url = f"{settings.tool_runtime_url}/tools/capabilities"
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(url)
+    r = await request.app.state.http.get(f"{settings.tool_runtime_url}/tools/capabilities")
     return r.json()
 
 
@@ -424,89 +418,73 @@ async def metrics() -> dict:
 
 # ---------------------------------------------------------------- v1.3 -------
 # Observer proxy — control-plane sadece gateway (auth + routing). Observer pure compute.
-async def _observer_get(path: str, params: dict | None = None) -> dict:
-    import httpx
-    from .config import settings
+async def _observer_get(http: httpx.AsyncClient, path: str, params: dict | None = None) -> dict:
     url = f"{settings.observer_url}{path}"
     headers = {"X-Internal-Token": settings.observer_internal_token}
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(url, params=params, headers=headers)
+    r = await http.get(url, params=params, headers=headers)
     return r.json()
 
 
 @app.get("/observer/scores")
-async def observer_scores(window: str = "24h") -> dict:
+async def observer_scores(window: str = "24h", request: Request = None) -> dict:
     """Observer composite skorları + KPI + delta. (proxy)"""
-    return await _observer_get("/scores", {"window": window})
+    return await _observer_get(request.app.state.http, "/scores", {"window": window})
 
 
 @app.get("/observer/clusters")
-async def observer_clusters(window: str = "24h") -> dict:
+async def observer_clusters(window: str = "24h", request: Request = None) -> dict:
     """Observer failure cluster listesi. (proxy)"""
-    return await _observer_get("/clusters", {"window": window})
+    return await _observer_get(request.app.state.http, "/clusters", {"window": window})
 
 
 @app.get("/observer/recommendations")
-async def observer_recommendations(window: str = "24h") -> dict:
+async def observer_recommendations(window: str = "24h", request: Request = None) -> dict:
     """Observer advisory öneriler. (proxy)"""
-    return await _observer_get("/recommendations", {"window": window})
+    return await _observer_get(request.app.state.http, "/recommendations", {"window": window})
 
 
 # ---------------------------------------------------------------- v2.1 -------
 # Builder proxy — artifact → doğrulanmış repo (assemble + validate + persist).
 @app.post("/tasks/{task_id}/build")
-async def build_repo(task_id: str, stack: str = "nextjs-prisma-sqlite") -> dict:
+async def build_repo(task_id: str, stack: str = "nextjs-prisma-sqlite", request: Request = None) -> dict:
     """Workspace Runtime: task artifact'larını çalıştırılabilir repo'ya çevirir. (proxy)"""
-    import httpx
-    from .config import settings
-    url = f"{settings.builder_url}/build/{task_id}"
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, params={"stack": stack})
+    r = await request.app.state.http.post(
+        f"{settings.builder_url}/build/{task_id}", params={"stack": stack}, timeout=60)
     return r.json()
 
 
 @app.get("/tasks/{task_id}/builds")
-async def list_builds(task_id: str) -> dict:
+async def list_builds(task_id: str, request: Request = None) -> dict:
     """Task'a ait build kayıtları. (proxy)"""
-    import httpx
-    from .config import settings
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(f"{settings.builder_url}/builds", params={"task_id": task_id})
+    r = await request.app.state.http.get(
+        f"{settings.builder_url}/builds", params={"task_id": task_id})
     return r.json()
 
 
 @app.get("/builds/{build_id}")
-async def get_build(build_id: str) -> dict:
+async def get_build(build_id: str, request: Request = None) -> dict:
     """Build kaydı + dosya ağacı (manifest). (proxy)"""
-    import httpx
-    from .config import settings
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(f"{settings.builder_url}/builds/{build_id}")
+    r = await request.app.state.http.get(f"{settings.builder_url}/builds/{build_id}")
     return r.json()
 
 
 @app.get("/builds/{build_id}/file")
-async def get_build_file(build_id: str, path: str) -> dict:
+async def get_build_file(build_id: str, path: str, request: Request = None) -> dict:
     """Build içindeki tek dosya içeriği. (proxy)"""
-    import httpx
-    from .config import settings
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(f"{settings.builder_url}/builds/{build_id}/file", params={"path": path})
+    r = await request.app.state.http.get(
+        f"{settings.builder_url}/builds/{build_id}/file", params={"path": path})
     return r.json()
 
 
 # ---------------------------------------------------------------- v2.2 -------
 # Sandbox build execution — sandbox saf executor; control-plane sonucu persist eder.
 @app.post("/builds/{build_id}/run")
-async def run_build(build_id: str, session: AsyncSession = Depends(get_session)) -> dict:
+async def run_build(build_id: str, session: AsyncSession = Depends(get_session), request: Request = None) -> dict:
     """Build'i sandbox'ta gerçekten çalıştır (npm install/prisma/build), sonucu persist et."""
-    import httpx
     import uuid as _uuid
-    from .config import settings
     from .models import BuildRun
-    url = f"{settings.sandbox_url}/run/{build_id}"
-    async with httpx.AsyncClient(timeout=420) as client:  # gerçek build dakikalar sürebilir
-        r = await client.post(url)
+    r = await request.app.state.http.post(
+        f"{settings.sandbox_url}/run/{build_id}", timeout=420)  # gerçek build dakikalar sürebilir
     res = r.json()
     run = BuildRun(
         run_id=res.get("run_id") or f"run_{_uuid.uuid4().hex[:12]}",
@@ -523,32 +501,23 @@ async def run_build(build_id: str, session: AsyncSession = Depends(get_session))
 # ---------------------------------------------------------------- v2.3 -------
 # Live Preview — preview servisi canlı dev server'ı host 8100'de tutar (tek-slot).
 @app.post("/builds/{build_id}/preview")
-async def start_preview(build_id: str) -> dict:
+async def start_preview(build_id: str, request: Request = None) -> dict:
     """Üretilen uygulamayı canlı dev server olarak başlat. (proxy)"""
-    import httpx
-    from .config import settings
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(f"{settings.preview_url}/preview/{build_id}")
+    r = await request.app.state.http.post(f"{settings.preview_url}/preview/{build_id}")
     return {**r.json(), "public_url": settings.preview_public_url}
 
 
 @app.get("/preview/status")
-async def preview_status() -> dict:
+async def preview_status(request: Request = None) -> dict:
     """Aktif preview durumu. (proxy)"""
-    import httpx
-    from .config import settings
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(f"{settings.preview_url}/preview/status")
+    r = await request.app.state.http.get(f"{settings.preview_url}/preview/status")
     return {**r.json(), "public_url": settings.preview_public_url}
 
 
 @app.post("/preview/stop")
-async def preview_stop() -> dict:
+async def preview_stop(request: Request = None) -> dict:
     """Aktif preview'i durdur. (proxy)"""
-    import httpx
-    from .config import settings
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(f"{settings.preview_url}/preview/stop")
+    r = await request.app.state.http.post(f"{settings.preview_url}/preview/stop")
     return r.json()
 
 

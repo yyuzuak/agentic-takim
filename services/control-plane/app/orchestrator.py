@@ -557,7 +557,10 @@ async def _finalize(s, task_id: str) -> None:
     if task is None:
         return
     statuses = {n.status for n in nodes}
-    if statuses == {"done"}:
+    # approval node'ları non-blocking: bunlar hariç kalan node'ların tümü done ise task done olur
+    non_approval = {n.status for n in nodes if n.node_kind != "approval"}
+    all_done = (statuses - {"awaiting_approval"}) == {"done"} and bool(non_approval)
+    if all_done:
         if task.status != "done":  # transition (bir kez)
             task.status = "done"
             task.result = {n.node_key: (n.result or {}) for n in nodes}
@@ -571,7 +574,7 @@ async def _finalize(s, task_id: str) -> None:
                     await memory.mark_reuse_success(s, mids)
             except Exception as e:  # noqa: BLE001
                 print(f"[memory] finalize store hata: {e}", flush=True)
-    elif "dead_letter" in statuses and not ({"pending", "running", "scheduled"} & statuses):
+    elif "dead_letter" in statuses and not ({"pending", "running", "scheduled", "awaiting_approval"} & statuses):
         task.status = "failed"
         task.error = "bir veya daha fazla düğüm dead_letter"
 

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     config_path: str = "/app/config/agents.json"
     tool_runtime_url: str = "http://tool-runtime:8001"  # v1.1-b: HTTP API proxy
     observer_url: str = "http://observer:8002"  # v1.3: analytics plane proxy
-    observer_internal_token: str = "dev-internal-token"  # service-to-service auth
+    observer_internal_token: str = "dev-internal-token"  # service-to-service auth (env: OBSERVER_INTERNAL_TOKEN)
     builder_url: str = "http://builder:8003"  # v2.1: workspace runtime proxy
     sandbox_url: str = "http://sandbox:8004"  # v2.2: build execution proxy
     preview_url: str = "http://preview:8005"  # v2.3: live preview proxy

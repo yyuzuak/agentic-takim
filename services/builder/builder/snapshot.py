@@ -66,7 +66,8 @@ def _file_inventory(repo: str) -> list[dict]:
             rel = os.path.relpath(full, repo)
             if rel.startswith(".build_manifest"):
                 continue
-            data = open(full, "rb").read()
+            with open(full, "rb") as f:
+                data = f.read()
             inv.append({"path": rel, "sha256": _sha256(data)[:16], "size": len(data)})
     return sorted(inv, key=lambda x: x["path"])
 
