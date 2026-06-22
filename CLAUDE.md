@@ -2,7 +2,7 @@
 
 > Bu dosya, projenin "anayasasıdır". `atoms.dev` mantığıyla çalışan, her biri net bir kişiliğe, sorumluluğa ve yetenek setine (skill) sahip yapay zekâ ajanlarından oluşan bir **takımı** tanımlar. Amaç: kullanıcının vizyonunu, doğru ajana doğru görevi vererek, koordineli ve denetlenebilir bir şekilde hayata geçirmek.
 
-> ℹ️ **Kapsam:** Bu belge ajanların **kim olduklarını** (persona) ve **hangi kurallara uyduklarını** tanımlar. **Çalışma-zamanı (runtime) mimarisi** — DAG yürütme, mesaj zarfları, routing, validation pipeline — ayrı `ARCHITECTURE.md` dosyasındadır. Şu an çalışan kod **yoktur**; sistem tek bir modelin bu belgeyi okuyup rolleri canlandırmasıyla işler.
+> ℹ️ **Kapsam:** Bu belge ajanların **kim olduklarını** (persona) ve **hangi kurallara uyduklarını** tanımlar. **Çalışma-zamanı (runtime) mimarisi** — DAG yürütme, mesaj zarfları, routing, validation pipeline — ayrı `ARCHITECTURE.md` dosyasındadır. Sistem artık **çalışan kod olarak implemente edilmiştir** (control-plane, agent-runner, NATS JetStream, tool-runtime, observer, builder/sandbox/preview); tamamlanmış milestone'lar için bkz. `README.md` → Roadmap.
 
 ---
 

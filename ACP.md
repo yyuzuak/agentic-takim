@@ -1,6 +1,6 @@
 # ACP.md — Agent Communication Protocol (v1)
 
-> ⚠️ **KAPSAM NOTU:** Bu belge bir **spesifikasyondur, çalışan kod değildir.** Tüm bloklar **örnek şema / sözde-kod**tur; gerçekte çalışan bir message bus, kuyruk veya event sistemi **yoktur**. Bu protokol, ileride gerçek runtime'a (bkz. `ARCHITECTURE.md`) dönüştürülecek ajanlar-arası iletişimi tanımlar. Ajan personaları için bkz. `CLAUDE.md`.
+> ℹ️ **KAPSAM NOTU:** Bu belge ajanlar-arası iletişim protokolünün **tasarım spesifikasyonudur.** Bloklar kavramı anlatan **örnek şema / sözde-kod**tur. Protokol artık **gerçek runtime olarak implemente edilmiştir**: NATS JetStream üzerinde çalışan bir message bus + DLQ + retry mevcuttur (kanonik subject'ler `packages/schemas/agentic_schemas/events/v1.py` ve `scripts/init-nats.sh` ile sabittir; bkz. `ARCHITECTURE.md`). Ajan personaları için bkz. `CLAUDE.md`.
 
 ---
 
@@ -191,10 +191,11 @@ Sistem async çalışabilir.
 
 **Topic'ler (kavramsal):** `task.created`, `task.completed`, `task.failed`, `handoff.requested`, `task.cancelled`, `agent.heartbeat`, `approval.requested`.
 
-**Kanonik JetStream subject'leri (implementasyon — sabittir):** `init-nats.sh` ve `agentic_schemas.events.v1` ile birebir. Sonradan değiştirmek pahalıdır:
+**Kanonik JetStream subject'leri (implementasyon — sabittir):** `init-nats.sh` ve `agentic_schemas.events.v1` ile birebir (9 subject). Sonradan değiştirmek pahalıdır:
 
 ```
 ACP.TASK.CREATED      ACP.TASK.COMPLETED    ACP.TASK.FAILED
+ACP.TASK.DLQ          ACP.TOOL.REQUEST      ACP.TOOL.RESULT
 ACP.HANDOFF.REQUESTED ACP.AGENT.HEARTBEAT   ACP.SYSTEM.EVENT
 ```
 
@@ -301,4 +302,4 @@ ACP v1 (+ eklemeler) sistemi şuraya taşır:
 - ✔ Geleceğe ölçeklenme (multi-node, dağıtık ajanlar)
 - ✔ Sözleşme + güvenlik + dayanıklılık (DLQ, retry, idempotency, liveness)
 
-> **Hatırlatma:** Bu bir spesifikasyondur; çalışan kod yoktur. Stack seçildi — bu protokol **NATS JetStream** üzerinde, **LangGraph** ajan runtime'ı ve **FastAPI** control plane ile hayata geçecek (bkz. `STACK.md`).
+> **Hatırlatma:** Bu protokol implemente edilmiştir — **NATS JetStream** üzerinde, **LangGraph** ajan runtime'ı ve **FastAPI** control plane ile hayata geçirildi (bkz. `STACK.md`, `ARCHITECTURE.md`).

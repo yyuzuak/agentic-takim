@@ -1,6 +1,6 @@
 # STACK.md — Teknoloji Yığını Kararı
 
-> ⚠️ **KAPSAM NOTU:** Bu bir **karar belgesidir, çalışan kod değildir.** Buradaki dizin şemaları ve örnekler **taslaktır**. Belge, daha önce yazılan spesifikasyonların (`CLAUDE.md`, `ARCHITECTURE.md`, `ACP.md`) **hangi teknolojilerle** hayata geçeceğini sabitler. Implementasyon (kod) bir sonraki aşamadır.
+> ℹ️ **KAPSAM NOTU:** Bu bir **teknoloji kararı belgesidir.** Spesifikasyonların (`CLAUDE.md`, `ARCHITECTURE.md`, `ACP.md`) **hangi teknolojilerle** hayata geçtiğini sabitler. Burada belgelenen stack artık **implemente edilmiştir ve çalışmaktadır** (`make setup` ile ayağa kalkar); tamamlanmış işler için bkz. `README.md` → Roadmap.
 
 ---
 
@@ -80,11 +80,16 @@ agentic-takim/
 ├── CLAUDE.md ARCHITECTURE.md ACP.md STACK.md   # spec'ler (kökte)
 ├── README.md Makefile .env.example .tool-versions
 ├── .devcontainer/  .github/workflows/ci.yml
-├── apps/web/                 # Next.js (control-plane health + registry gösterir)
+├── apps/web/                 # Next.js — Agent Studio UI (DAG/timeline/tool/memory/observer)
 ├── services/
 │   ├── control-plane/       # FastAPI — routing/orkestrasyon API + Alembic
 │   ├── agent-runner/        # LangGraph graph yürütme (AsyncPostgresSaver)
-│   └── worker/              # NATS tüketici (tool/embedding/background)
+│   ├── worker/              # NATS tüketici (sistem olayları / audit; genişletilebilir)
+│   ├── tool-runtime/        # Tool adapter runtime (8001) — dış çağrılar, circuit breaker, compensation
+│   ├── observer/            # Observer (8002) — read-only analytics: KPI/score/cluster/recommendation
+│   ├── builder/             # Builder (8003) — artifact → doğrulanmış repo (assemble+validate+persist)
+│   ├── sandbox/             # Sandbox (8004) — build execution (npm install/prisma/build, stateless)
+│   └── preview/             # Preview (8005, app 8100) — canlı npm run dev, tek-slot, TTL auto-stop
 ├── packages/
 │   ├── schemas/             # Pydantic: acp/v1, skill-contract/v1, agent-registry/v1, events/v1
 │   ├── sdk/                 # üretilen istemci (placeholder)
@@ -110,4 +115,4 @@ agentic-takim/
 
 ---
 
-> **Durum:** İskelet kuruldu (self-bootstrapping şablon). `make setup` ile core stack ayağa kalkar. Sıradaki adım: ACP mesaj akışının ve Kaptan orkestrasyonunun uçtan uca implementasyonu (bkz. README → Roadmap).
+> **Durum:** Stack implemente edildi ve çalışıyor. `make setup` ile core stack ayağa kalkar; ACP mesaj akışı, Kaptan orkestrasyonu, tool runtime, observer ve app-builder hattı (builder/sandbox/preview) uçtan uca hayata geçirildi. Tamamlanmış milestone'lar ve sıradaki adım için bkz. README → Roadmap.

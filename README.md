@@ -2,7 +2,7 @@
 
 `atoms.dev` mantığıyla çalışan, her biri kendine has kişiliği ve skill seti olan bir **AI ajan takımı** ve onu çalıştıran **dağıtık runtime** için şablon repo. Klonla → `make setup` → tüm stack local'de ayağa kalkar.
 
-> **Durum:** v0.8.1 Memory Consolidation **tamamlandı** — memory sistemi artık zamanla bozulmuyor: `value_score` (reuse/recency/retrieval/refine bileşik skoru), store-time near-dup dedup (reinforce), decay (HALFLIFE=14 gün), periyodik forgetting (value<0.25 + eski + kullanılmamış → evict), recall re-ranking (0.7·sim + 0.3·value). M1-M7 yeşil. Önceki: v2.3 Live Preview (atoms.dev "uygulamayı canlı gör" anı, localhost:8100). Sıradaki: v3.0 Autonomous Repair.
+> **Durum:** Sistem uçtan uca çalışıyor (`make setup` ile core stack ayağa kalkar). En son tamamlanan milestone'lar: **v2.3 Live Preview** (atoms.dev "uygulamayı canlı gör" anı, localhost:8100) ve **v0.8.1 Memory Consolidation** (memory artık zamanla bozulmuyor: `value_score` reuse/recency/retrieval/refine bileşik skoru, store-time near-dup dedup, decay HALFLIFE=14 gün, periyodik forgetting, recall re-ranking 0.7·sim + 0.3·value; M1-M7 yeşil). Tüm tamamlanan işler için aşağıdaki Roadmap'e bakın. Sıradaki: v3.0 Autonomous Repair.
 
 ## Quickstart (2 dakika)
 
@@ -56,7 +56,7 @@ Web (Next.js) → Control-plane (FastAPI) → NATS (JetStream) → Agents (LangG
 | `apps/web` | Next.js arayüzü |
 | `services/control-plane` | FastAPI — routing/orkestrasyon API (Kaptan) |
 | `services/agent-runner` | LangGraph graph yürütme (durable, AsyncPostgresSaver) |
-| `services/worker` | Arka plan/tool/embedding işleri (NATS tüketici) |
+| `services/worker` | Sistem olayları / audit tüketicisi (`ACP.SYSTEM.EVENT`; arka plan işleri için genişletilebilir) |
 | `services/tool-runtime` | Tool adapter runtime (port 8001) — dış sistem çağrıları, circuit breaker, compensation |
 | `services/observer` | Observer (port 8002) — read-only sidecar analytics: KPI/score/cluster/recommendation |
 | `services/builder` | Builder (port 8003) — artifact → doğrulanmış repo: assemble+validate+persist, build kayıtları (exec yok) |
@@ -91,6 +91,7 @@ Ajanlar event-driven, sözleşme-öncelikli ACP ile haberleşir (bkz. [ACP.md](.
 
 ```
 ACP.TASK.CREATED      ACP.TASK.COMPLETED    ACP.TASK.FAILED
+ACP.TASK.DLQ          ACP.TOOL.REQUEST      ACP.TOOL.RESULT
 ACP.HANDOFF.REQUESTED ACP.AGENT.HEARTBEAT   ACP.SYSTEM.EVENT
 ```
 
@@ -269,7 +270,6 @@ curl -X POST localhost:8000/dlq/<node_id>/replay -d '{"actor":"yasin"}'   # repl
 - [x] **v2.3 Live Preview** (canlı doğrulandı) — `services/preview` (8005 API + app 8100, tek-slot in-memory, non-root, read-only workspace→/tmp, TTL auto-stop): canlı `npm install`+`prisma db push`+seed+`npm run dev`; kullanıcı localhost:8100'ü açar (reverse-proxy yok). control-plane proxy (POST /builds/{id}/preview, GET /preview/status, POST /preview/stop); UI BuildCard "Önizle" → status poll → "Uygulamayı Aç". E1–E8 yeşil (localhost:8100 canlı app + API). DB/migration yok (ephemeral)
 - [x] **v0.8.1 Memory Consolidation** (M1-M7 yeşil) — `value_score` (reuse/recency/retrieval/refine, HALFLIFE=14gün); store-time near-dup dedup (reinforce mevcut); periyodik consolidation job (re-score+decay+forgetting evict: per-type top-20 + value<0.25 + global cap); recall re-ranking (0.7·sim + 0.3·value); migration 0014; UI Değer sütunu (renk eşikli)
 - [ ] v3.0 Autonomous Repair — build fail → structured error → planner re-task → regenerate (closed loop + iterasyon/maliyet governor)
-- [ ] v2.3 Live Preview — üretilen app için çalışan URL (atoms.dev deneyimi)
 - [ ] v1.4 Observer Advise — recommendation → planner prompt injection; statistical confidence layer, retry causality, cross-cluster correlation, HMAC/rotating service auth
 - [ ] v2.0 SaaS Multi-Tenant (organizations, users, roles, billing, API keys)
 

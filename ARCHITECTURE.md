@@ -1,6 +1,6 @@
 # ARCHITECTURE.md — Agentic Runtime Spesifikasyonu (v1)
 
-> ⚠️ **KAPSAM NOTU — ÖNEMLİ:** Bu belge bir **spesifikasyondur, çalışan kod değildir.** Buradaki tüm kod blokları **sözde-kod (pseudo-code)** veya **örnek şemadır**; gerçekte çalışan bir orchestrator, DAG yürütücü veya mesaj kuyruğu **yoktur**. Şu an sistem, tek bir modelin `CLAUDE.md`'yi okuyup rolleri canlandırması (roleplay) ile çalışır. Bu belge, ileride **gerçek runtime'a** dönüştürülecek tasarımı tanımlar. Somut teknoloji seçimleri için bkz. **`STACK.md`** (Next.js, FastAPI, LangGraph, NATS JetStream, Postgres, Redis, Qdrant, LiteLLM, OpenTelemetry).
+> ℹ️ **KAPSAM NOTU:** Bu belge runtime'ın **tasarım spesifikasyonudur.** Buradaki kod blokları kavramı anlatan **sözde-kod (pseudo-code)** veya **örnek şemadır** — gerçek implementasyon bunlara birebir uymak zorunda değildir. Tasarım artık **gerçek runtime olarak hayata geçirilmiştir**: çalışan bir orchestrator (control-plane), DAG yürütücü (agent-runner + LangGraph) ve mesaj kuyruğu (NATS JetStream) mevcuttur (bkz. §14–§23 ve `README.md` → Roadmap). Somut teknoloji seçimleri için bkz. **`STACK.md`** (Next.js, FastAPI, LangGraph, NATS JetStream, Postgres, Redis, Qdrant, LiteLLM, OpenTelemetry).
 >
 > Ajan personaları, skill listeleri ve çalışma kuralları için bkz. **`CLAUDE.md`**. Bu belge "nasıl çalışacağı" (runtime); CLAUDE.md "kim oldukları" (persona+kural).
 
@@ -296,9 +296,9 @@ Kalıcı ortak durum **Proje Hafızası**'nda tutulur (CLAUDE.md Bölüm 8): akt
 
 ---
 
-## 12. Event Bus (Production Upgrade — opsiyonel)
+## 12. Event Bus (implemente edildi)
 
-İleride mikroservis gibi kurulmak istenirse, ajanlar arası olay tabanlı iletişim (topic'ler, backpressure, DLQ ve tüm detaylar için bkz. **`ACP.md`** Bölüm 6):
+Ajanlar arası olay tabanlı iletişim **NATS JetStream** üzerinde çalışır (topic'ler, backpressure, DLQ ve tüm detaylar için bkz. **`ACP.md`** Bölüm 6):
 
 ```jsonc
 // örnek olay — pseudo
@@ -344,7 +344,7 @@ Bu spesifikasyon olgunlaştığında sistem şunları sağlayacak:
 - ✔ Dinamik replan, retry, durable checkpoint
 - ✔ Bütçe yönetimi + güvenlik/izolasyon + human-in-the-loop
 
-> **Durum (v1.3):** Sistem çalışıyor. Tool Runtime (8001) + Control-plane (8000) + Agent Studio UI (3000) + Observer (8002) prodüksiyona hazır. DAG yürütme, tool adapter, circuit breaker, compensation ledger, human-in-the-loop ve observability plane (KPI/score/cluster/recommendation) tamamen implemente edildi.
+> **Durum:** Sistem çalışıyor. Control-plane (8000) + Agent Studio UI (3000) + Tool Runtime (8001) + Observer (8002) + Builder (8003) + Sandbox (8004) + Preview (8005/8100) ayakta. DAG yürütme, tool adapter, circuit breaker, compensation ledger, human-in-the-loop, observability plane (KPI/score/cluster/recommendation), gerçek LLM ajan reasoning, artifact→repo→build→canlı preview hattı ve memory consolidation implemente edildi. En son tamamlanan milestone'lar: **v2.3 Live Preview** + **v0.8.1 Memory Consolidation** (tüm liste için bkz. `README.md` → Roadmap). Sıradaki: v3.0 Autonomous Repair.
 
 ---
 
